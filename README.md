@@ -294,8 +294,8 @@ start_ngrok.bat
 
 ![Result](input1.png)
 ![Result](res_input1.png)
-![Result](1c46dcc5fc4decdd38a8ba754952e816.jpg)
-![Result](res_1c46dcc5fc4decdd38a8ba754952e816.jpg)
+![Result](input2.jpg)
+![Result](res_input2.jpg)
 
 ***
 
