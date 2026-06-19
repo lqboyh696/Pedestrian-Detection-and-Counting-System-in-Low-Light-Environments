@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+
+# IDE
+.idea/
+.vscode/
+
+# macOS
+.DS_Store
+
+# Model files (too large for GitHub, use Git LFS or upload separately)
+models/
+
+# Runtime data
+static/live_records/
+static/uploads/
+static/results/
+
+# Ngrok / temp
+*.log

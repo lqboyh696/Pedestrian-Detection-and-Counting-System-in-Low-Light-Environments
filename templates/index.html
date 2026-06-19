@@ -1,0 +1,989 @@
+﻿<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>低光照行人检测系统</title>
+    <!-- 引入高级字体与图标 -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+
+    <style>
+        :root {
+            --bg-gray: #f8f9fa;
+            --sidebar-bg: #ffffff;
+            --text-dark: #2d3436;
+            --accent-blue: #0984e3;
+            --border-color: #eef2f3;
+            --card-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+            --sidebar-width: 300px;
+        }
+
+        body {
+            background-color: var(--bg-gray);
+            font-family: 'Inter', -apple-system, sans-serif;
+            color: var(--text-dark);
+            margin: 0; overflow-x: hidden;
+        }
+
+        /* --- 侧边栏样式 --- */
+        .sidebar {
+            width: var(--sidebar-width); height: 100vh;
+            background: var(--sidebar-bg); position: fixed;
+            left: 0; top: 0; border-right: 1px solid var(--border-color);
+            padding: 30px 20px; z-index: 1100;
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .mobile-header {
+            display: none; background: #fff; padding: 12px 20px;
+            border-bottom: 1px solid var(--border-color);
+            position: sticky; top: 0; z-index: 1000;
+            align-items: center; justify-content: space-between;
+        }
+
+        .sidebar-overlay {
+            display: none; position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%; background: rgba(0,0,0,0.3);
+            z-index: 1050; backdrop-filter: blur(2px);
+        }
+
+        .brand-box { margin-bottom: 40px; padding-left: 10px; }
+        .brand-title { font-weight: 700; font-size: 1.2rem; letter-spacing: -0.5px; }
+
+        .role-card {
+            background: #fdfdfd; border: 1px solid var(--border-color);
+            border-left: 3px solid var(--accent-blue);
+            border-radius: 14px; padding: 15px; margin-bottom: 30px;
+            box-shadow: 0 2px 12px rgba(9, 132, 227, 0.08);
+            transition: all 0.25s ease;
+        }
+        .role-card:hover {
+            box-shadow: 0 4px 20px rgba(9, 132, 227, 0.15);
+            transform: translateY(-1px);
+        }
+
+        .nav-menu { list-style: none; padding: 0; }
+        .nav-link {
+            display: flex; align-items: center; padding: 12px 15px; border-radius: 12px;
+            color: #636e72; text-decoration: none; transition: 0.3s; font-weight: 500;
+        }
+        .nav-link:hover, .nav-link.active { background: #f8f9fa; color: var(--accent-blue); }
+        .nav-link.disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* --- 主内容区 --- */
+        .main-wrapper {
+            margin-left: var(--sidebar-width);
+            padding: 40px 40px 40px 90px;  /* 👈 改成这样：上40 右40 下40 左70 */
+            width: auto;
+            max-width: 100%;
+            transition: margin 0.3s ease-in-out;
+        }
+
+        @media (max-width: 991.98px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.active { transform: translateX(0); }
+            .sidebar-overlay.show { display: block; }
+            .mobile-header { display: flex; }
+            .main-wrapper { margin-left: 0; padding: 25px 20px; }
+        }
+
+        .content-card {
+            background: #fff; border-radius: 18px; padding: 30px;
+            box-shadow: var(--card-shadow); border: 1px solid rgba(0,0,0,0.01);
+            margin-bottom: 30px;
+        }
+
+        /* --- 上传区域 --- */
+        .upload-area {
+            border: 2px dashed #d1d5db; border-radius: 16px;
+            padding: 50px 20px; text-align: center;
+            cursor: pointer; transition: 0.3s; background: #fafafa;
+            display: block;
+        }
+        .upload-area:hover { border-color: var(--accent-blue); background: #f0f7ff; }
+        #file-input { display: none; }
+
+        /* --- 视频展示区 --- */
+        .monitor-booth { background: #000; border-radius: 12px; overflow: hidden; position: relative; border: 1px solid #eee; line-height: 0; margin-bottom: 20px; }
+        .monitor-label { position: absolute; top: 15px; left: 15px; font-size: 0.7rem; font-weight: 700; color: #fff; background: rgba(0,0,0,0.4); padding: 4px 10px; border-radius: 6px; z-index: 10; backdrop-filter: blur(4px); }
+        .monitor-view { width: 100%; max-height: 500px; object-fit: contain; }
+
+        .btn-modern {
+            background: var(--text-dark); color: white; border-radius: 12px;
+            padding: 14px; border: none; font-weight: 600; transition: 0.3s;
+        }
+        .btn-modern:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(0,0,0,0.1); color: white; }
+
+        /* --- 进度条遮罩层 --- */
+        .loading-overlay {
+            display: none; position: fixed; top: 0; left: 0;
+            width: 100%; height: 100%; background: rgba(255,255,255,0.85);
+            z-index: 9999; backdrop-filter: blur(5px);
+            flex-direction: column; align-items: center; justify-content: center;
+        }
+        .spinner-border { width: 3rem; height: 3rem; margin-bottom: 1rem; color: var(--accent-blue); }
+
+        /* 🟢 专为手机和弱网设计的“伪全屏”类，无视浏览器限制 */
+        .pseudo-fullscreen {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-height: none !important;
+            z-index: 9999 !important;
+            background: #000 !important;
+            border-radius: 0 !important;
+            object-fit: contain !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }
+
+        /* 🟢 区域选择面板样式 */
+        .zone-cell {
+            min-height: 70px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            border-radius: 10px;
+            transition: all 0.2s;
+            cursor: pointer;
+            border: 2px solid #ddd;
+            background: #f0f0f0;
+            user-select: none;
+        }
+        .zone-cell:hover {
+            border-color: #0984e3;
+            background: #eef6ff;
+        }
+        .zone-cell.selected {
+            border-color: #0984e3 !important;
+            background: #0984e3 !important;
+            color: #fff !important;
+        }
+        .zone-cell.selected .zone-num {
+            color: #fff !important;
+        }
+        .zone-num {
+            font-weight: 700;
+            font-size: 0.9rem;
+            color: #636e72;
+        }
+        .zone-direction-label {
+            font-size: 0.55rem;
+            color: #636e72;
+            text-align: center;
+            line-height: 1.2;
+        }
+        .zone-cell.selected .zone-direction-label {
+            color: rgba(255,255,255,0.85);
+        }
+
+        /* 建议1：给底部的统计卡片增加边框和微弱阴影，更有仪表盘的感觉 */
+        .bg-light.rounded-3.text-center {
+            border: 1px solid var(--border-color);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+            transition: transform 0.2s ease;
+        }
+        .bg-light.rounded-3.text-center:hover {
+            transform: translateY(-2px);
+            border-color: var(--accent-blue);
+        }
+
+        /* 建议2：给 LIVE 指示灯增加一个呼吸闪烁的动画，更专业 */
+        @keyframes pulse {
+            0% { transform: scale(0.95); opacity: 0.8; }
+            50% { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.95); opacity: 0.8; }
+        }
+        .dot {
+            animation: pulse 1.5s infinite ease-in-out !important;
+        }
+
+        /* 建议3：全屏按钮悬浮时的磨砂玻璃效果 */
+        #btn-fullscreen-live:hover {
+            background: rgba(255,255,255,0.2) !important;
+            backdrop-filter: blur(10px) !important;
+            border-color: rgba(255,255,255,0.4) !important;
+        }
+
+        /* 🟢 新增：高级选项卡与面板样式 */
+        .config-panel {
+            background: #ffffff;
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 20px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.02);
+            margin-top: 1.5rem;
+        }
+
+        .panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+            padding-bottom: 15px;
+            border-bottom: 1px dashed #eee;
+        }
+
+        /* iOS 风格分段控制器 */
+        .segment-control {
+            display: inline-flex;
+            background: #f1f3f5;
+            border-radius: 10px;
+            padding: 4px;
+        }
+        .segment-btn {
+            border: none;
+            background: transparent;
+            padding: 6px 18px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: #868e96;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            cursor: pointer;
+        }
+        .segment-btn.active {
+            background: #ffffff;
+            color: var(--accent-blue);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        /* 划线模式卡片样式 */
+        .line-card {
+            border: 2px solid #eee;
+            border-radius: 12px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: 0.2s;
+            background: #fafafa;
+        }
+        .line-card:hover { border-color: #bbdcf7; background: #f0f7ff; }
+        .line-card.selected {
+            border-color: var(--accent-blue);
+            background: #eef6ff;
+            color: var(--accent-blue);
+        }
+        .line-icon { font-size: 1.5rem; margin-bottom: 8px; color: inherit; }
+        .line-title { font-size: 0.8rem; font-weight: 700; color: inherit; }
+
+        /* 🟢 新增：专为手机优化的响应式样式 */
+        @media (max-width: 767.98px) {
+            .panel-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            .panel-header .btn {
+                align-self: flex-end;
+            }
+            .segment-control {
+                width: 100%;
+            }
+            .segment-btn {
+                flex-grow: 1;
+                text-align: center;
+            }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+    <div class="mobile-header">
+        <button class="btn btn-sm" onclick="toggleSidebar()"><i class="bi bi-list h2 mb-0"></i></button>
+        <span class="fw-bold">低光照行人检测系统</span>
+        <div style="width: 40px;"></div>
+    </div>
+
+    <!-- 1. 侧边栏 -->
+    <aside class="sidebar" id="mainSidebar">
+        <div class="brand-box">
+            <div class="brand-title"><i class="bi bi-layers-half text-primary me-2"></i>低光照行人检测系统</div>
+        </div>
+
+        <div class="role-card">
+            <div class="d-flex align-items-center mb-3">
+                <i class="bi bi-person-badge h4 mb-0 me-2 text-secondary"></i>
+                <span class="small fw-bold">{{ '管理员' if is_admin else '普通用户' }}</span>
+            </div>
+            {% if is_admin %}
+                <a href="/logout" class="btn btn-sm btn-outline-danger w-100 py-2 border-0">退出登录</a>
+            {% else %}
+                <button class="btn btn-sm btn-dark w-100 py-2" onclick="prepareLogin()">切换管理员</button>
+            {% endif %}
+        </div>
+
+        <ul class="nav-menu">
+            <li class="nav-item"><a href="/" class="nav-link active"><i class="bi bi-grid-1x2 me-2"></i>核心控制台</a></li>
+            <li class="nav-item">
+                <a href="{{ url_for('history') }}" class="nav-link">
+                    <i class="bi bi-clock-history me-2"></i>
+                    {{ '全部历史记录' if is_admin else '我的历史记录' }}
+                </a>
+            </li>
+        </ul>
+    </aside>
+
+    <!-- 2. 主内容区 -->
+    <main class="main-wrapper">
+        <header class="mb-5 d-none d-lg-block">
+            <h3 class="fw-bold">校园行人分析概览</h3>
+            <p class="text-muted small">系统状态：<span class="text-success">就绪</span> (Node-01)</p>
+        </header>
+
+        <div class="row">
+            <div class="col-12 col-xl-10">
+
+                <!-- 本地素材分析 -->
+                <div class="content-card">
+                    <!-- 🟢 修改处：标题与开关并排显示 -->
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
+                        <h6 class="fw-bold mb-2 mb-md-0">数据源接入</h6>
+                        <div class="d-flex gap-4">
+                            <!-- 开关 1：上传任务的低光增强 -->
+                            <div class="form-check form-switch m-0">
+                                <input class="form-check-input" type="checkbox" id="uploadEnhance" checked>
+                                <label class="form-check-label small fw-bold text-dark" for="uploadEnhance">低光增强</label>
+                            </div>
+                            <!-- 开关 2：上传任务的行人检测 -->
+                            <div class="form-check form-switch m-0">
+                                <input class="form-check-input" type="checkbox" id="uploadDetect" checked>
+                                <label class="form-check-label small fw-bold text-dark" for="uploadDetect">YOLOv8 行人检测</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 视频增强模型选择（仅视频上传时生效） -->
+                    <div class="d-flex flex-wrap align-items-center mb-4 pb-3 border-bottom" style="border-color: rgba(0,0,0,0.05) !important;">
+                        <span class="fw-bold small text-muted me-4" style="white-space: nowrap;">
+                            <i class="bi bi-camera-video me-2"></i>视频增强模型
+                        </span>
+                        <div class="d-flex align-items-center me-3">
+                            <label class="small fw-bold text-dark mb-0 me-3" style="cursor: pointer; white-space: nowrap;">
+                                <input type="radio" name="enhanceModel" value="zero_dce" checked class="me-1"> Zero-DCE
+                            </label>
+                            <label class="small fw-bold text-dark mb-0" style="cursor: pointer; white-space: nowrap;">
+                                <input type="radio" name="enhanceModel" value="darkir" class="me-1"> DarkIR
+                            </label>
+                        </div>
+                        <div class="ms-auto d-flex gap-3 small mt-2 mt-md-0" style="color: #b2bec3; font-size: 0.7rem;">
+                            <span><i class="bi bi-image me-1"></i>图像使用 DarkIR 模型</span>
+                            <span><i class="bi bi-broadcast me-1"></i>实时使用 Zero-DCE模型</span>
+                        </div>
+                    </div>
+
+                    <form id="uploadForm">
+                        <input type="hidden" name="zone" id="uploadZone" value="null">
+                        <label class="upload-area w-100 mb-4" id="drop-zone">
+                            <i class="bi bi-cloud-arrow-up h1 d-block text-muted mb-3"></i>
+                            <span class="small text-muted" id="file-label">点击选择或拖拽媒体文件至此</span>
+                            <input type="file" name="file" id="file-input" onchange="updateFileName()">
+                        </label>
+                        <button type="submit" class="btn btn-modern px-5 d-block mx-auto">执行分析任务</button>
+                    </form>
+
+                    <!-- 🟢 全新重构：智能监控分析配置面板 -->
+                    <div class="config-panel" id="zoneConfigPanel">
+                        <div class="panel-header">
+                            <div class="segment-control">
+                                <button class="segment-btn active" id="tabZone" onclick="switchConfigMode('zone')">
+                                    <i class="bi bi-grid-1x2 me-1"></i> 区域驻留
+                                </button>
+                                <button class="segment-btn" id="tabLine" onclick="switchConfigMode('line')">
+                                    <i class="bi bi-slash-lg me-1"></i> 越界计数
+                                </button>
+                            </div>
+                            <button class="btn btn-sm text-danger border-0" onclick="resetToGlobal()" style="font-size: 0.75rem; font-weight: 600; background: #fff1f0;">
+                                <i class="bi bi-arrow-counterclockwise"></i> 恢复全屏默认
+                            </button>
+                        </div>
+
+                        <!-- 模式 1：区域驻留监控 -->
+                        <div id="modeZoneContent">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <span class="fw-bold small text-muted"><i class="bi bi-crop me-1"></i> 选择画面裁切区域 (支持局部放大)</span>
+                            </div>
+                            <div class="zone-grid" id="zoneGrid" style="display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(2, 1fr); gap: 10px;">
+                            </div>
+                            <div class="text-center mt-3" id="zoneHint" style="font-size: 0.75rem; color: #b2bec3; font-weight: 500;">
+                                默认状态：全局全屏分析
+                            </div>
+                        </div>
+
+                        <!-- 模式 2：越界划线计数 (默认隐藏) -->
+                        <div id="modeLineContent" style="display: none;">
+                            <div class="d-flex justify-content-between align-items-center mb-3">
+                                <span class="fw-bold small text-muted"><i class="bi bi-bezier2 me-1"></i> 设置虚拟警戒线与方向</span>
+                                <select class="form-select form-select-sm border-primary text-primary fw-bold" id="zoneDirection" style="width: auto; font-size: 0.75rem; border-radius: 8px; background: #f0f7ff;" onchange="updateLineDirection()">
+                                    <option value="top_to_bottom">↓ 从上到下</option>
+                                    <option value="bottom_to_top">↑ 从下到上</option>
+                                    <option value="left_to_right">→ 从左到右</option>
+                                    <option value="right_to_left">← 从右到左</option>
+                                </select>
+                            </div>
+
+                            <div class="row g-2">
+                                <div class="col-4">
+                                    <div class="line-card" id="line-h1" onclick="selectLine('h1', ['top_to_bottom', 'bottom_to_top'])">
+                                        <div class="line-icon"><i class="bi bi-distribute-vertical"></i></div>
+                                        <div class="line-title">横向警戒线</div>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="line-card" id="line-v1" onclick="selectLine('v1', ['left_to_right', 'right_to_left'])">
+                                        <div class="line-icon"><i class="bi bi-distribute-horizontal"></i></div>
+                                        <div class="line-title">左纵警戒线</div>
+                                    </div>
+                                </div>
+                                <div class="col-4">
+                                    <div class="line-card" id="line-v2" onclick="selectLine('v2', ['left_to_right', 'right_to_left'])">
+                                        <div class="line-icon"><i class="bi bi-distribute-horizontal"></i></div>
+                                        <div class="line-title">右纵警戒线</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div> <!-- 这个标签之前写错位置了，现在移到这里正确闭合第一个卡片 -->
+
+                <!-- 摄像头接入控制 -->
+                <div class="content-card">
+                    <div class="row align-items-center">
+                        <div class="col-md-6 mb-3 mb-md-0">
+                            <h6 class="fw-bold m-0">摄像头实时接入</h6>
+                            <p class="extra-small text-muted m-0">支持多路设备动态识别与切换</p>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="d-flex gap-3 align-items-center">
+                                <!-- 动态填充所有摄像头 -->
+                                <select class="form-select form-select-sm" id="cameraSelect" style="border-radius: 10px;" onfocus="getCameras()">
+                                    <option>正在扫描摄像头...</option>
+                                </select>
+
+                                 <!-- 🟢 新增：画质选择器 -->
+                                <select class="form-select form-select-sm" id="cameraQuality" style="border-radius: 10px; width: auto;">
+                                    <option value="1080p" selected>超清 (1080P)</option>
+                                    <option value="720p">高清 (720P)</option>
+                                </select>
+
+                                <div class="form-check form-switch m-0">
+                                    <input class="form-check-input" type="checkbox" id="cameraToggle" onchange="toggleLive(this)" style="width: 2.5em; height: 1.25em;">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 第二行：高级 AI 链条控制 -->
+                    <div class="row align-items-center pt-3 border-top mt-3" style="border-color: rgba(0,0,0,0.05) !important;">
+                        <div class="col-12 d-flex flex-column flex-md-row justify-content-between align-items-md-center">
+                            <span class="small fw-semibold text-muted mb-2 mb-md-0"><i class="bi bi-cpu me-2"></i>实时处理引擎控制</span>
+                            <div class="d-flex gap-4">
+                                <!-- 开关 1：直播低光增强 -->
+                                <div class="form-check form-switch m-0">
+                                    <input class="form-check-input" type="checkbox" id="liveEnhance" checked>
+                                    <label class="form-check-label small fw-bold text-dark" for="liveEnhance">Zero-DCE 低光增强</label>
+                                </div>
+                                <!-- 开关 2：直播行人检测 -->
+                                <div class="form-check form-switch m-0">
+                                    <input class="form-check-input" type="checkbox" id="liveDetect" checked>
+                                    <label class="form-check-label small fw-bold text-dark" for="liveDetect">YOLOv8 行人检测</label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 实时画面展示 -->
+                <div class="content-card">
+                    <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center mb-4">
+                        <h6 class="fw-bold mb-2 mb-md-0"><i class="bi bi-broadcast text-danger me-2"></i>实时监测输出</h6>
+
+                        <div class="d-flex align-items-center gap-3">
+                            <!-- 🟢 新增：自动录像开关 (非管理员默认禁用) -->
+                            <div class="form-check form-switch m-0" title="{{ '需要管理员权限' if not is_admin else '自动保存直播录像' }}">
+                                <input class="form-check-input" type="checkbox" id="liveRecord" checked {{ 'disabled' if not is_admin }}>
+                                <label class="form-check-label small fw-bold text-danger" for="liveRecord">⏺ 录像</label>
+                            </div>
+
+                            <!-- 状态指示灯 -->
+                            <div id="liveIndicator" style="display: none;">
+                                <span class="status-badge" id="liveStatusBadge" style="background: #fff1f0; color: #ff4d4f; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700;">
+                                    <span class="dot" style="height: 8px; width: 8px; background-color: #ff4d4f; border-radius: 50%; display: inline-block; margin-right: 5px; animation: blink 1s infinite;"></span>LIVE
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 核心监控显示区 -->
+                    <div class="monitor-booth" style="background: #141414; border-radius: 16px; min-height: 400px; display: flex; align-items: center; justify-content: center;">
+                        <span class="monitor-label" style="background: rgba(0,123,255,0.2); color: #007bff; border: 1px solid rgba(0,123,255,0.3);">ENHANCED VIEW</span>
+
+                        <!-- 连接状态叠加标签（画面右上角） -->
+                        <span id="connStatusOverlay" style="display: none; position: absolute; top: 15px; right: 15px; font-size: 0.7rem; font-weight: 700; color: #fff; background: rgba(255,77,79,0.5); padding: 4px 10px; border-radius: 6px; z-index: 10; backdrop-filter: blur(4px);">
+                            <span id="connDot" style="height: 7px; width: 7px; background-color: #ff4d4f; border-radius: 50%; display: inline-block; margin-right: 5px; animation: blink 1s infinite;"></span>
+                            <span id="connText">LIVE</span>
+                        </span>
+
+                        <img src="" id="liveProcessed" class="monitor-view" style="display: none; width: 100%; border-radius: 12px; cursor: pointer;"
+                             ondblclick="toggleFullscreen(this)" title="双击画面即可全屏/退出"
+                             onerror="setConnStatus('error')">
+
+                        <!-- 🟢 新增全屏控制按钮 -->
+                        <button id="btn-fullscreen-live" style="display: none; position: absolute; bottom: 15px; right: 15px; background: rgba(0,0,0,0.5); color: white; border: 1px solid rgba(255,255,255,0.1);
+                            width: 36px; height: 36px; border-radius: 8px; cursor: pointer; z-index: 20; backdrop-filter: blur(4px); transition: all 0.3s ease; align-items: center; justify-content: center;
+                            " onclick="toggleFullscreen(document.getElementById('liveProcessed'))" onmouseover="this.style.background='rgba(0,0,0,0.8)'; this.style.transform='scale(1.1)';" onmouseout="this.style.background='rgba(0,0,0,0.5)'; this.style.transform='scale(1)';">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                        </button>
+
+                        <video id="liveRaw" autoplay playsinline muted style="display: none;"></video>
+
+                        <div id="procWait" class="py-5 text-center text-muted">
+                            <i class="bi bi-camera-video-off h1 d-block mb-3 opacity-25"></i>
+                            <p>等待摄像头信号接入...</p>
+                        </div>
+                    </div>
+
+                    <canvas id="hiddenCanvas" style="display:none;"></canvas>
+
+                    <div class="row mt-4">
+                        <div class="col-6 col-md-4">
+                            <div class="p-3 bg-light rounded-3 text-center">
+                                <div class="text-muted extra-small" style="font-size: 0.7rem;">当前检测人数</div>
+                                <div class="h4 fw-bold m-0 text-primary" id="liveCount">--</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </main>
+
+    <!-- 管理员登录弹窗 -->
+    <div class="modal fade" id="loginModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered mx-auto" style="max-width: 380px;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                <div class="modal-body p-5 text-center">
+                    <h4 class="fw-bold mb-3">管理员验证</h4>
+                    <input type="password" id="adminPwd" class="form-control mb-3 text-center" placeholder="••••••" style="border-radius: 12px; padding: 15px; background: #f8f9fa;">
+                    <button class="btn btn-primary w-100 py-3 fw-bold" onclick="verifyPwd()" style="border-radius: 12px; background: #000;">验证身份</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 加载遮罩层 -->
+    <div class="loading-overlay" id="loadingOverlay">
+        <div class="spinner-border" role="status"></div>
+        <h4 class="fw-bold mt-3">系统正在深度分析中</h4>
+        <p class="text-muted" id="loadingText">处理可能需要较长时间，请勿关闭页面...</p>
+        <div class="mt-3" id="progressContainer" style="display: none; width: 320px;">
+            <div class="d-flex justify-content-between small text-muted mb-1">
+                <span id="progressLabel">处理进度</span>
+                <span id="progressPercent">0%</span>
+            </div>
+            <div class="progress" style="height: 6px; border-radius: 3px; background: #e9ecef;">
+                <div class="progress-bar progress-bar-striped progress-bar-animated"
+                     id="progressFill" style="width: 0%; border-radius: 3px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 报错提示弹窗 -->
+    <div class="modal fade" id="errorModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered mx-auto" style="max-width: 380px;">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 24px;">
+                <div class="modal-body p-5 text-center">
+                    <i class="bi bi-exclamation-triangle-fill text-danger mb-3" style="font-size: 3.5rem;"></i>
+                    <h4 class="fw-bold mb-2">处理失败</h4>
+                    <p class="text-muted small mb-4" id="errorMsgText">发生了未知错误</p>
+                    <button class="btn btn-dark w-100 py-3 fw-bold" data-bs-dismiss="modal" style="border-radius: 12px;">知道了</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入 Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 🟢 引入 Socket.IO 客户端 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.2/socket.io.min.js"></script>
+
+    <script>
+        let clientStream = null;
+        let processTimer = null;
+        let isProcessing = false;
+        let streamWatchdog = null;          // 直播断连检测定时器
+        let streamFrameCount = 0;           // 已接收帧计数
+
+        // 🟢 重构后的界面逻辑控制
+        let currentMode = 'zone';
+        let selectedZone = null;
+        let selectedLine = '';
+        let lineDirection = 'top_to_bottom';
+
+        function initZoneConfig() {
+            renderZoneGrid();
+        }
+
+        function switchConfigMode(mode) {
+            currentMode = mode;
+            document.getElementById('tabZone').classList.toggle('active', mode === 'zone');
+            document.getElementById('tabLine').classList.toggle('active', mode === 'line');
+            document.getElementById('modeZoneContent').style.display = mode === 'zone' ? 'block' : 'none';
+            document.getElementById('modeLineContent').style.display = mode === 'line' ? 'block' : 'none';
+        }
+
+        function resetToGlobal() {
+            selectedZone = null;
+            selectedLine = '';
+            renderZoneGrid();
+            updateLineUI();
+            document.getElementById('zoneHint').innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill"></i> 已恢复全局全屏分析</span>';
+            setTimeout(() => { document.getElementById('zoneHint').innerText = '当前状态：全局全屏分析'; }, 2000);
+        }
+
+        /* --- 模式 1：区域逻辑 --- */
+        function renderZoneGrid() {
+            const grid = document.getElementById('zoneGrid');
+            grid.innerHTML = '';
+            for (let i = 1; i <= 6; i++) {
+                const cell = document.createElement('div');
+                cell.className = 'zone-cell' + (selectedZone === i ? ' selected' : '');
+                cell.onclick = () => {
+                    selectedZone = selectedZone === i ? null : i;
+                    selectedLine = '';
+                    renderZoneGrid();
+                    updateLineUI();
+                    document.getElementById('zoneHint').innerHTML = selectedZone
+                        ? '<span class="text-primary fw-bold"><i class="bi bi-aspect-ratio"></i> 已锁定并放大 Zone ' + selectedZone + '</span>'
+                        : '当前状态：全局全屏分析';
+                };
+                const num = document.createElement('span');
+                num.className = 'zone-num';
+                num.textContent = 'ZONE ' + i;
+                cell.appendChild(num);
+                grid.appendChild(cell);
+            }
+        }
+
+        /* --- 模式 2：划线逻辑 --- */
+        function selectLine(lineId, allowedDirections) {
+            selectedLine = selectedLine === lineId ? '' : lineId;
+            selectedZone = null;
+            renderZoneGrid();
+            updateLineUI();
+
+            const select = document.getElementById('zoneDirection');
+            Array.from(select.options).forEach(opt => {
+                opt.style.display = allowedDirections.includes(opt.value) ? 'block' : 'none';
+            });
+            if (selectedLine && !allowedDirections.includes(select.value)) {
+                select.value = allowedDirections[0];
+                lineDirection = allowedDirections[0];
+            }
+        }
+
+        function updateLineDirection() {
+            lineDirection = document.getElementById('zoneDirection').value;
+        }
+
+        function updateLineUI() {
+            ['h1', 'v1', 'v2'].forEach(id => {
+                const card = document.getElementById('line-' + id);
+                if (card) card.classList.toggle('selected', selectedLine === id);
+            });
+        }
+
+        function getActiveZoneConfig() {
+            if (currentMode === 'zone') {
+                return selectedZone ? { id: selectedZone, direction: 'top_to_bottom' } : null;
+            } else {
+                return selectedLine ? { mode: 'line', line_id: selectedLine, direction: lineDirection } : null;
+            }
+        }
+
+        // 🟢 初始化 WebSocket 连接
+        // 🟢 强制优先使用 WebSocket，极大地提升连接速度和稳定性
+        const socket = io({ transports: ['polling', 'websocket'] });
+
+        // 统一更新连接状态（画面叠加标签 + 标题栏徽章）
+        function setConnStatus(state) {
+            const overlay = document.getElementById('connStatusOverlay');
+            const dot = document.getElementById('connDot');
+            const text = document.getElementById('connText');
+            const badge = document.getElementById('liveStatusBadge');
+            if (state === 'live') {
+                const html = '<span class="dot" style="height:8px;width:8px;background-color:#ff4d4f;border-radius:50%;display:inline-block;margin-right:5px;animation:blink 1s infinite;"></span>LIVE';
+                if (overlay) { overlay.style.background = 'rgba(255,77,79,0.45)'; if (dot) dot.style.background = '#ff4d4f'; if (text) text.textContent = 'LIVE'; }
+                if (badge) { badge.style.background = '#fff1f0'; badge.style.color = '#ff4d4f'; badge.innerHTML = html; }
+            } else if (state === 'weak') {
+                if (overlay) { overlay.style.background = 'rgba(250,140,22,0.5)'; if (dot) { dot.style.background = '#fa8c16'; dot.style.animation = 'none'; } if (text) text.textContent = '信号弱'; }
+                if (badge) { badge.style.background = '#fff7e6'; badge.style.color = '#fa8c16'; badge.innerHTML = '<span class="dot" style="height:8px;width:8px;background-color:#fa8c16;border-radius:50%;display:inline-block;margin-right:5px;"></span>信号弱'; }
+            } else if (state === 'error') {
+                if (overlay) { overlay.style.background = 'rgba(255,77,79,0.6)'; if (dot) { dot.style.background = '#ff4d4f'; dot.style.animation = 'none'; } if (text) text.textContent = '解码失败'; }
+                if (badge) { badge.style.background = '#fff1f0'; badge.style.color = '#ff4d4f'; badge.innerHTML = '<span class="dot" style="height:8px;width:8px;background-color:#ff4d4f;border-radius:50%;display:inline-block;margin-right:5px;"></span>解码失败'; }
+            }
+        }
+
+        // 监听服务器返回的处理结果
+        socket.on('stream_result', function(data) {
+            if(data.status === 'success') {
+                const img = document.getElementById('liveProcessed');
+                img.src = data.image;
+                document.getElementById('liveCount').innerText = data.count;
+                streamFrameCount++;
+
+                setConnStatus('live');
+                if (streamWatchdog) clearTimeout(streamWatchdog);
+                streamWatchdog = setTimeout(() => { setConnStatus('weak'); }, 5000);
+            }
+            isProcessing = false;
+        });
+
+        // 自动扫描所有摄像头并填充下拉菜单
+        async function getCameras() {
+            try {
+                await navigator.mediaDevices.getUserMedia({ video: true });
+                const devices = await navigator.mediaDevices.enumerateDevices();
+                const videoDevices = devices.filter(device => device.kind === 'videoinput');
+                const select = document.getElementById('cameraSelect');
+
+                select.innerHTML = '';
+                videoDevices.forEach((device, index) => {
+                    const option = document.createElement('option');
+                    option.value = device.deviceId;
+                    option.text = device.label || `摄像头 ${index + 1}`;
+                    select.appendChild(option);
+                });
+            } catch (err) {
+                console.error("无法获取摄像头列表", err);
+            }
+        }
+        window.onload = function() { getCameras(); initZoneConfig(); };
+
+        function toggleSidebar() {
+            document.getElementById('mainSidebar').classList.toggle('active');
+            document.getElementById('sidebarOverlay').classList.toggle('show');
+        }
+
+        function updateFileName() {
+            const input = document.getElementById('file-input');
+            if (input.files.length > 0) document.getElementById('file-label').innerText = "已选择: " + input.files[0].name;
+        }
+
+        function verifyPwd() {
+            const pwd = document.getElementById('adminPwd').value;
+            fetch('/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ password: pwd })
+            }).then(res => res.ok ? window.location.reload() : alert("验证失败"));
+        }
+
+        // 🟢 核心重构：高速 WebSocket 抓帧逻辑
+        async function toggleLive(checkbox) {
+            const rawVideo = document.getElementById('liveRaw');
+            const processedImg = document.getElementById('liveProcessed');
+            const procWait = document.getElementById('procWait');
+            const indicator = document.getElementById('liveIndicator');
+            const deviceId = document.getElementById('cameraSelect').value;
+
+            if (checkbox.checked) {
+                try {
+                    clientStream = await navigator.mediaDevices.getUserMedia({
+                        video: { deviceId: deviceId ? { ideal: deviceId } : undefined }
+                    });
+                    rawVideo.srcObject = clientStream;
+
+                    processedImg.style.display = 'block';
+                    procWait.style.display = 'none';
+                    indicator.style.display = 'block';
+                    document.getElementById('connStatusOverlay').style.display = 'inline-block';
+                    setConnStatus('live');
+                    // 🟢 显示全屏按钮
+                    document.getElementById('btn-fullscreen-live').style.display = 'flex';
+
+                    // 本地访问用更短间隔提升帧率，外网穿透保持50ms
+                    const isLocal = ['localhost', '127.0.0.1', '0.0.0.0'].includes(window.location.hostname);
+                    const captureInterval = isLocal ? 20 : 50;
+                    processTimer = setInterval(() => {
+                        if (isProcessing) return;
+
+                        const canvas = document.getElementById('hiddenCanvas');
+                        const ctx = canvas.getContext('2d');
+                        const rawVideo = document.getElementById('liveRaw');
+
+                        if (rawVideo.videoWidth === 0 || rawVideo.videoHeight === 0) return;
+
+                        const quality = document.getElementById('cameraQuality').value;
+                        const nativeRatio = rawVideo.videoWidth / rawVideo.videoHeight;
+
+                        // 🟢 修复1：不再暴力除以 2 缩小画面！
+                        // 根据选项截取真实的高度，宽度按比例自适应，保证绝对清晰
+                        let targetH = (quality === '720p') ? 720 : 1080;
+
+                        // 如果摄像头本身太烂，达不到 720 高度，就不做强行拉伸
+                        if (rawVideo.videoHeight < targetH) {
+                            targetH = rawVideo.videoHeight;
+                        }
+
+                        // 保证宽度是 8 的倍数，适配 DarkIR
+                        let targetW = Math.round(targetH * nativeRatio);
+                        targetW = Math.floor(targetW / 8) * 8;
+
+                        canvas.width = targetW;
+                        canvas.height = targetH;
+
+                        ctx.drawImage(rawVideo, 0, 0, canvas.width, canvas.height);
+
+                        // 🟢 调高 JPEG 发送质量
+                        const base64Data = canvas.toDataURL('image/jpeg', quality === '720p' ? 0.6 : 0.4);
+
+                        isProcessing = true;
+                        socket.emit('stream_frame', {
+                            image: base64Data,
+                            enhance: document.getElementById('liveEnhance').checked,
+                            detect: document.getElementById('liveDetect').checked,
+                            quality: quality,
+                            record: document.getElementById('liveRecord').checked,
+                            zone: getActiveZoneConfig()
+                        });
+                    }, captureInterval);
+
+                } catch (err) {
+                    alert("接入失败：请确保授予摄像头权限。");
+                    checkbox.checked = false;
+                }
+            } else {
+                if (clientStream) clientStream.getTracks().forEach(t => t.stop());
+                clearInterval(processTimer);
+                if (streamWatchdog) { clearTimeout(streamWatchdog); streamWatchdog = null; }
+                streamFrameCount = 0;
+                document.getElementById('connStatusOverlay').style.display = 'none';
+                rawVideo.srcObject = null;
+                processedImg.style.display = 'none';
+                procWait.style.display = 'block';
+                indicator.style.display = 'none';
+                // 🟢 隐藏全屏按钮
+                document.getElementById('btn-fullscreen-live').style.display = 'none';
+                document.getElementById('liveCount').innerText = "--";
+                isProcessing = false;
+            }
+        }
+
+        // 拖拽逻辑保持
+        const dropZone = document.getElementById('drop-zone');
+        dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.background = "#f0f7ff"; });
+        dropZone.addEventListener('dragleave', () => { dropZone.style.background = "#fafafa"; });
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            const files = e.dataTransfer.files;
+            if (files.length > 0) { document.getElementById('file-input').files = files; updateFileName(); }
+        });
+
+        function prepareLogin() {
+            const sidebar = document.getElementById('mainSidebar');
+            if (sidebar.classList.contains('active')) {
+                toggleSidebar();
+                setTimeout(() => { new bootstrap.Modal(document.getElementById('loginModal')).show(); }, 300);
+            } else {
+                new bootstrap.Modal(document.getElementById('loginModal')).show();
+            }
+        }
+
+        // 异步文件上传拦截
+        document.getElementById('uploadForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const fileInput = document.getElementById('file-input');
+            if (fileInput.files.length === 0) {
+                showError("请先选择或拖拽媒体文件");
+                return;
+            }
+
+            const overlay = document.getElementById('loadingOverlay');
+            const timerText = document.getElementById('loadingText');
+            overlay.style.display = 'flex';
+
+            const file = fileInput.files[0];
+            const isVideo = file.type.startsWith('video/') || file.name.match(/\.(mp4|avi|mov|mkv)$/i);
+
+            let seconds = 0;
+            const baseText = isVideo ? "视频素材正在逐帧推理解析" : "图像增强与识别中";
+            timerText.innerText = `${baseText}，请耐心等待... (当前已耗时 0 秒)`;
+
+            const timerInterval = setInterval(() => {
+                seconds++;
+                timerText.innerText = `${baseText}... (已耗时 ${seconds} 秒)`;
+            }, 1000);
+
+            const formData = new FormData(this);
+            formData.append('enhance', document.getElementById('uploadEnhance').checked);
+            formData.append('detect', document.getElementById('uploadDetect').checked);
+            formData.append('enhance_model', document.querySelector('input[name="enhanceModel"]:checked').value);
+            formData.set('zone', JSON.stringify(getActiveZoneConfig()));
+
+            // 视频处理进度轮询
+            let progressTimer = null;
+            if (isVideo) {
+                const progressContainer = document.getElementById('progressContainer');
+                const progressFill = document.getElementById('progressFill');
+                const progressPercent = document.getElementById('progressPercent');
+                const progressLabel = document.getElementById('progressLabel');
+                progressContainer.style.display = 'block';
+                const stem = file.name.replace(/\.[^.]+$/, '');
+                const progressKey = 'res_' + stem + '.mp4';
+
+                progressTimer = setInterval(async () => {
+                    try {
+                        const res = await fetch('/progress/' + encodeURIComponent(progressKey));
+                        const p = await res.json();
+                        progressFill.style.width = p.percent + '%';
+                        progressPercent.textContent = p.percent + '%';
+                        progressLabel.textContent = '已处理 ' + p.current + ' / ' + p.total + ' 帧';
+                        if (p.done) {
+                            progressLabel.textContent = '渲染封装中...';
+                        }
+                    } catch (e) { /* 忽略轮询失败 */ }
+                }, 800);
+            }
+
+            try {
+                const response = await fetch('/upload', { method: 'POST', body: formData });
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    window.location.href = data.redirect;
+                } else {
+                    overlay.style.display = 'none';
+                    showError(data.message || "服务器处理异常");
+                }
+            } catch (error) {
+                overlay.style.display = 'none';
+                showError("网络请求中断，请检查服务器连接");
+            } finally {
+                clearInterval(timerInterval);
+                if (progressTimer) clearInterval(progressTimer);
+            }
+        });
+
+        function showError(message) {
+            document.getElementById('errorMsgText').innerText = message;
+            new bootstrap.Modal(document.getElementById('errorModal')).show();
+        }
+
+        // 🟢 全局全屏切换函数
+        function toggleFullscreen(elem) {
+            elem.classList.toggle('pseudo-fullscreen');
+        }
+
+    </script>
+</body>
+</html>

@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>分析报告 | 低光照行人检测系统</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --bg-gray: #f8f9fa;
+            --sidebar-bg: #ffffff;
+            --text-dark: #2d3436;
+            --accent-blue: #0984e3;
+            --border-color: #eef2f3;
+            --sidebar-width: 260px;
+        }
+
+        body {
+            background-color: var(--bg-gray);
+            font-family: 'Inter', -apple-system, sans-serif;
+            color: var(--text-dark);
+            margin: 0; overflow-x: hidden;
+        }
+
+        .sidebar {
+            width: var(--sidebar-width); height: 100vh;
+            background: var(--sidebar-bg); position: fixed;
+            left: 0; top: 0; border-right: 1px solid var(--border-color);
+            padding: 30px 20px; z-index: 1100;
+            transition: transform 0.3s ease-in-out;
+        }
+
+        .mobile-header { display: none; background: #fff; padding: 12px 20px; border-bottom: 1px solid var(--border-color); position: sticky; top: 0; z-index: 1000; align-items: center; justify-content: space-between; }
+        .sidebar-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.3); z-index: 1050; backdrop-filter: blur(2px); }
+        .brand-title { font-weight: 700; font-size: 1.2rem; letter-spacing: -0.5px; margin-bottom: 40px; display: block; text-decoration: none; color: inherit; }
+        .nav-menu { list-style: none; padding: 0; }
+        .nav-link { display: flex; align-items: center; padding: 12px 15px; border-radius: 12px; color: #636e72; text-decoration: none; transition: 0.3s; font-weight: 500; }
+        .nav-link:hover, .nav-link.active { background: #f8f9fa; color: var(--accent-blue); }
+
+        .main-wrapper { margin-left: var(--sidebar-width); padding: 40px 50px; transition: margin 0.3s ease-in-out; }
+
+        @media (max-width: 991.98px) {
+            .sidebar { transform: translateX(-100%); }
+            .sidebar.active { transform: translateX(0); }
+            .sidebar-overlay.show { display: block; }
+            .mobile-header { display: flex; }
+            .main-wrapper { margin-left: 0; padding: 25px 20px; }
+            .brand-title { margin-bottom: 30px; }
+            header.d-flex { flex-direction: column; align-items: flex-start !important; }
+            header .btn-back { margin-top: 15px; }
+        }
+
+        .compare-card { background: #fff; border-radius: 20px; padding: 25px; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.03); border: 1px solid rgba(0,0,0,0.01); margin-bottom: 30px; }
+        .view-label { font-size: 0.7rem; font-weight: 700; color: #b2bec3; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 15px; }
+        .media-container { background: #fafafa; border-radius: 12px; overflow: hidden; border: 1px solid #f0f0f0; line-height: 0; text-align: center; }
+        .media-item { width: 100%; max-height: 400px; object-fit: contain; }
+
+        .stat-card { background: #fff; border-radius: 16px; padding: 20px; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.02); height: 100%; border: 1px solid rgba(0,0,0,0.01); transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease; }
+        .stat-card:hover { transform: translateY(-2px); border-color: var(--accent-blue) !important; box-shadow: 0 6px 20px rgba(9, 132, 227, 0.08); }
+        .stat-label { font-size: 0.75rem; color: #636e72; margin-bottom: 8px; font-weight: 600; }
+        .stat-value { font-size: 1.8rem; font-weight: 700; color: var(--text-dark); }
+        .stat-unit { font-size: 0.8rem; font-weight: 400; color: #b2bec3; margin-left: 4px; }
+
+        .locked-overlay { background: #fcfcfc; border: 2px dashed #eee; border-radius: 16px; height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #b2bec3; min-height: 120px;}
+        .btn-back { background: #fff; border: 1px solid #eee; border-radius: 10px; padding: 8px 18px; font-size: 0.9rem; font-weight: 500; transition: 0.3s; color: var(--text-dark); text-decoration: none; }
+        .btn-back:hover { background: #f8f9fa; transform: translateX(-3px); }
+
+        .fullscreen-trigger { cursor: zoom-in; transition: transform 0.2s; }
+        .fullscreen-icon { position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.5); color: white; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; opacity: 0; transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1); backdrop-filter: blur(4px); }
+        .media-container:hover .fullscreen-icon { opacity: 1; }
+        .fullscreen-icon:hover { background: rgba(255, 255, 255, 0.2) !important; backdrop-filter: blur(10px) !important; border: 1px solid rgba(255, 255, 255, 0.4) !important; color: #fff; transform: scale(1.1); box-shadow: 0 4px 15px rgba(0,0,0,0.2); }
+        .pseudo-fullscreen { position: fixed !important; top: 0 !important; left: 0 !important; width: 100vw !important; height: 100vh !important; max-height: none !important; z-index: 9999 !important; background: #000 !important; border-radius: 0 !important; object-fit: contain !important; margin: 0 !important; padding: 0 !important; }
+
+        /* 🟢 新增：专为手机优化的响应式样式 */
+        @media (max-width: 767.98px) {
+            .header-actions {
+                flex-wrap: wrap;
+                width: 100%;
+                margin-top: 15px;
+            }
+            .header-actions > * {
+                flex-grow: 1;
+                flex-basis: calc(50% - 8px);
+                justify-content: center;
+                text-align: center;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
+    <div class="mobile-header">
+        <button class="btn btn-sm" onclick="toggleSidebar()"><i class="bi bi-list h2 mb-0"></i></button>
+        <span class="fw-bold small">分析报告预览</span><div style="width: 40px;"></div>
+    </div>
+
+    <aside class="sidebar" id="mainSidebar">
+        <a href="/" class="brand-title"><i class="bi bi-layers-half text-primary me-2"></i>低光照行人检测系统</a>
+        <div class="mb-4 p-3 bg-light rounded-4">
+            <div class="extra-small text-muted mb-1" style="font-size: 0.7rem;">当前模式</div>
+            <div class="fw-bold small">{{ '管理员' if is_admin else '普通用户' }}</div>
+        </div>
+        <ul class="nav-menu">
+            <li class="nav-item"><a href="/" class="nav-link"><i class="bi bi-cpu me-2"></i>核心控制台</a></li>
+            <li class="nav-item"><a href="{{ url_for('history') }}" class="nav-link active"><i class="bi bi-clock-history me-2"></i>{{ '全部历史记录' if is_admin else '我的历史记录' }}</a></li>
+        </ul>
+    </aside>
+
+    <main class="main-wrapper">
+        <header class="d-flex justify-content-between align-items-end mb-4">
+            <div>
+                <h3 class="fw-bold m-0">
+                    分析报告
+                    {% if zone_id %}
+                        <span class="badge ms-2 bg-primary" style="font-size: 0.75rem; vertical-align: middle;">
+                            <i class="bi bi-grid-3x3-gap me-1"></i>区域模式
+                        </span>
+                    {% elif line_id %}
+                        <span class="badge ms-2" style="background: #e84393; font-size: 0.75rem; vertical-align: middle;">
+                            <i class="bi bi-slash-lg me-1"></i>越界模式
+                        </span>
+                    {% endif %}
+                </h3>
+                <p class="text-muted small mb-0 mt-1 text-truncate" style="max-width: 250px;">素材编号：{{ filename[:10] }}...</p>
+            </div>
+
+            <div class="d-flex gap-2 header-actions">
+                <a href="{% if is_live %}{{ url_for('static', filename='live_records/' + processed_file) }}{% else %}{{ url_for('static', filename='results/' + processed_file) }}{% endif %}" download="{{ processed_file }}" class="btn-back" style="color: var(--accent-blue); border-color: var(--accent-blue); background: #f0f7ff;">
+                    <i class="bi bi-cloud-arrow-down-fill me-1"></i> 保存结果
+                </a>
+                {% if is_video and not is_live %}
+                <button id="btnSyncPlay" class="btn-back" onclick="toggleSyncPlay()" style="color: #0984e3; border-color: #0984e3; background: #f0f7ff; cursor: pointer;">
+                    <i class="bi bi-play-circle me-1"></i> 同步播放
+                </button>
+                {% endif %}
+                <a href="/history#{{ 'live' if is_live else 'upload' }}" class="btn-back"><i class="bi bi-clock-history me-1"></i> 返回历史记录</a>
+                <a href="/" class="btn-back"><i class="bi bi-arrow-left me-1"></i> 返回控制台</a>
+            </div>
+        </header>
+
+        <!-- 1. 对比预览区 -->
+        <div class="compare-card">
+            <div class="row g-4">
+                {% if not is_live %}
+                <div class="col-12 col-md-6 border-md-end">
+                    <div class="view-label">ORIGINAL | 原始画面</div>
+                    <div class="media-container position-relative">
+                        {% if is_video %}
+                            <video id="videoOrig" class="media-item" controls muted autoplay playsinline>
+                                <source src="{{ url_for('static', filename='uploads/' + original_file) }}">
+                            </video>
+                        {% else %}
+                            <img src="{{ url_for('static', filename='uploads/' + original_file) }}" class="media-item fullscreen-trigger" title="双击全屏查看">
+                            <div class="fullscreen-icon" onclick="toggleFullscreen(this.previousElementSibling)"><i class="bi bi-arrows-fullscreen"></i></div>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+
+                <div class="col-12 {{ 'col-md-12' if is_live else 'col-md-6' }}">
+                    <div class="view-label text-primary">ENHANCED | 增强输出 {{ '(🔴 直播录像回放)' if is_live }}</div>
+                    <div class="media-container position-relative">
+                        {% if is_video %}
+                            <video id="videoEnh" class="media-item" controls autoplay muted playsinline style="{{ 'width: 100%;max-height: 650px; height: auto;' if is_live else '' }}">
+                                <source src="{{ url_for('static', filename='live_records/' + processed_file) if is_live else url_for('static', filename='results/' + processed_file) }}{% if not is_live and fresh %}?t={{ range(1, 9999) | random }}{% endif %}">
+                            </video>
+                        {% else %}
+                            <img src="{{ url_for('static', filename='results/' + processed_file) }}" class="media-item fullscreen-trigger" title="双击全屏查看">
+                            <div class="fullscreen-icon" onclick="toggleFullscreen(this.previousElementSibling)"><i class="bi bi-arrows-fullscreen"></i></div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 数据分析区 -->
+        <div class="row g-4 d-flex align-items-stretch">
+            {% if is_admin %}
+
+                <!-- 左侧卡片：统计数字面板 -->
+                <div class="col-12 {{ 'col-md-4' if (zone_id or line_id) else 'col-md-6' }}">
+                    <div class="stat-card d-flex flex-column">
+                        <div class="stat-label mb-3">
+                            {% if zone_id %}区域驻留监测{% elif line_id %}越界通行统计{% else %}全局检测总数{% endif %}
+                        </div>
+
+                        {% if zone_id %}
+                            <!-- 区域模式：显示进、出、当前画面三项 -->
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted small">当前画面 (Current)</span>
+                                <span class="fw-bold text-primary" style="font-size: 1.15rem;">{{ zone_count_cur }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between mb-2">
+                                <span class="text-muted small">进入人数 (In)</span>
+                                <span class="fw-bold text-success" style="font-size: 1.15rem;">{{ zone_count_in }}</span>
+                            </div>
+                            <div class="d-flex justify-content-between">
+                                <span class="text-muted small">离开人数 (Out)</span>
+                                <span class="fw-bold text-danger" style="font-size: 1.15rem;">{{ zone_count_out }}</span>
+                            </div>
+                        {% elif line_id %}
+                            <!-- 越界模式：只显示过线的总人数 -->
+                            <div class="mt-1">
+                                <div class="stat-value text-danger" style="font-size: 2.2rem;">
+                                    {{ zone_count_in }}<span class="stat-unit" style="font-size: 0.9rem;">次触发</span>
+                                </div>
+                                <div class="text-muted small mt-3 pt-2 border-top border-light">累计越线通行人数</div>
+                            </div>
+                        {% else %}
+                            <!-- 全局全屏：显示实时总计 -->
+                            <div class="stat-value text-primary mt-1">{{ count }}<span class="stat-unit">Persons</span></div>
+                            <div class="text-muted small mt-auto pt-2 border-top border-light">实时画面总计人数</div>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- 中间卡片：配置与方向面板（只有选了区域或划线才显示） -->
+                {% if zone_id or line_id %}
+                <div class="col-12 col-md-4">
+                    <div class="stat-card d-flex flex-column justify-content-between">
+                        <div>
+                            <div class="stat-label">监控配置与模式</div>
+
+                            {% if zone_id %}
+                                <!-- 🔴 区域模式：完全去除了方向显示 -->
+                                <div class="stat-value text-primary" style="font-size: 1.3rem;">
+                                    <i class="bi bi-grid-1x2 me-1"></i> Zone {{ zone_id }}
+                                </div>
+                                <div class="fw-bold text-muted small mt-2">
+                                    <span class="badge bg-light text-dark border"><i class="bi bi-person-bounding-box me-1"></i>框内驻留计数模式</span>
+                                </div>
+                            {% elif line_id %}
+                                <!-- 🔴 划线模式：明确显示线的类型和方向 -->
+                                <div class="stat-value" style="font-size: 1.3rem; color: #e84393;">
+                                    <i class="bi bi-slash-lg me-1"></i>
+                                    {% if line_id == 'h1' %}横向警戒线
+                                    {% elif line_id == 'v1' %}左纵警戒线
+                                    {% elif line_id == 'v2' %}右纵警戒线
+                                    {% else %}{{ line_id }}
+                                    {% endif %}
+                                </div>
+                                <div class="fw-bold text-muted small mt-2 d-flex align-items-center gap-2">
+                                    <span class="badge bg-light text-dark border">越界方向</span>
+                                    <span style="color: #e84393;">
+                                        {% if zone_direction == 'top_to_bottom' %}<i class="bi bi-arrow-down"></i> 从上到下
+                                        {% elif zone_direction == 'bottom_to_top' %}<i class="bi bi-arrow-up"></i> 从下到上
+                                        {% elif zone_direction == 'left_to_right' %}<i class="bi bi-arrow-right"></i> 从左到右
+                                        {% elif zone_direction == 'right_to_left' %}<i class="bi bi-arrow-left"></i> 从右到左
+                                        {% else %}{{ zone_direction }}
+                                        {% endif %}
+                                    </span>
+                                </div>
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+            {% else %}
+                <div class="col-12 col-md-8">
+                    <div class="locked-overlay">
+                        <i class="bi bi-eye-slash mb-2 h3"></i>
+                        <span class="small fw-medium">统计结果仅管理员可见</span>
+                        <p class="extra-small mt-1 mb-0 opacity-75">请在控制台切换至管理员身份以解锁完整报表</p>
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- 右侧卡片：文件元数据 -->
+            <div class="col-12 {{ 'col-md-4' if (is_admin and (zone_id or line_id)) else 'col-md-6' }}">
+                <div class="stat-card d-flex flex-column justify-content-between">
+                    <div class="stat-label">文件元数据</div>
+                    <div class="mt-2 small">
+                        <div class="d-flex justify-content-between mb-2"><span class="text-muted">类型</span><span class="fw-bold">{{ '视频' if is_video else '图片' }}</span></div>
+                        <div class="d-flex justify-content-between mb-2"><span class="text-muted">耗时</span><span class="fw-bold text-primary">{{ duration }} <small>秒</small></span></div>
+                        <div class="d-flex justify-content-between mb-2 text-truncate"><span class="text-muted">名称</span><span class="fw-bold text-truncate ms-3" style="max-width: 130px;">{{ filename }}</span></div>
+                        <div class="d-flex justify-content-between"><span class="text-muted">算法</span><span class="badge bg-light text-dark border-0">{{ algo }}</span></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <footer class="mt-5 pt-4 border-top text-muted extra-small text-center">
+            低光照行人检测系统 视觉计算实验室 · 安全分析报告
+        </footer>
+    </main>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        function toggleFullscreen(elem) {
+            elem.classList.toggle('pseudo-fullscreen');
+            if (elem.classList.contains('pseudo-fullscreen')) document.body.style.overflow = 'hidden';
+            else document.body.style.overflow = '';
+        }
+
+        let lastTap = 0;
+        document.querySelectorAll('.fullscreen-trigger').forEach(elem => {
+            elem.addEventListener('touchstart', function(e) {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTap;
+                if (tapLength < 500 && tapLength > 0) { toggleFullscreen(this); e.preventDefault(); }
+                lastTap = currentTime;
+            });
+            elem.addEventListener('dblclick', function(e) { toggleFullscreen(this); });
+        });
+
+        let syncActive = false;
+        function setupVideoSync() {
+            const orig = document.getElementById('videoOrig'), enh = document.getElementById('videoEnh');
+            if (!orig || !enh) return;
+
+            const syncPlay = () => { enh.currentTime = orig.currentTime; enh.play(); };
+            const syncPause = () => { enh.pause(); };
+            const syncSeek = () => { if (Math.abs(orig.currentTime - enh.currentTime) > 0.3) enh.currentTime = orig.currentTime; };
+
+            const bindSync = () => { orig.addEventListener('play', syncPlay); orig.addEventListener('pause', syncPause); orig.addEventListener('seeked', syncSeek); };
+            const unbindSync = () => { orig.removeEventListener('play', syncPlay); orig.removeEventListener('pause', syncPause); orig.removeEventListener('seeked', syncSeek); };
+
+            let readyCount = 0;
+            const onReady = () => {
+                readyCount++;
+                if (readyCount >= 2) { orig.currentTime = 0; enh.currentTime = 0; orig.play(); enh.play(); bindSync(); syncActive = true; updateSyncBtn(); }
+            };
+            orig.addEventListener('canplay', onReady, {once: true});
+            enh.addEventListener('canplay', onReady, {once: true});
+
+            window.toggleSyncPlay = function() {
+                if (syncActive) { unbindSync(); syncActive = false; }
+                else { orig.currentTime = 0; enh.currentTime = 0; orig.play(); enh.play(); bindSync(); syncActive = true; }
+                updateSyncBtn();
+            };
+
+            window.updateSyncBtn = function() {
+                const btn = document.getElementById('btnSyncPlay');
+                if (!btn) return;
+                btn.innerHTML = syncActive ? '<i class="bi bi-pause-circle me-1"></i> 取消同步' : '<i class="bi bi-play-circle me-1"></i> 同步播放';
+            };
+        }
+        document.addEventListener('DOMContentLoaded', setupVideoSync);
+
+        document.addEventListener('keydown', function(e) {
+            if (e.key === "Escape") {
+                document.querySelectorAll('.pseudo-fullscreen').forEach(elem => toggleFullscreen(elem));
+            }
+        });
+    </script>
+</body>
+</html>
