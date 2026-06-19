@@ -1,652 +1,307 @@
-# Pedestrian Detection and Counting System in Low-Light Environments
+# 低光照环境下的行人检测与计数系统
 
-低照度环境下基于深度学习的行人检测与计数系统。集成 **DarkIR / Zero-DCE 低光增强** + **YOLOv8 目标检测** + **ByteTrack 多目标跟踪**，通过 Flask + SocketIO 提供完整的 Web 交互界面，并支持 CLI 命令行批量处理。
+> **Pedestrian Detection and Counting System in Low-Light Environments**
 
-> **专业综合设计课程作业** | 四人团队协作项目
-
-**Contact**: <lqboyh@gmail.com>
+专业综合设计课程项目 —— 融合低光照图像增强与深度学习的行人检测计数系统。针对夜间、暗光场景下行人检测困难的问题，系统通过 **DarkIR / Zero-DCE** 两种低光增强网络对视频/图像进行亮度恢复，并行使用 **YOLOv8 + ByteTrack** 进行行人检测与多目标跟踪，实现精准的行人计数，有三种计数模式（全图计数、越线计数、区域计数）。系统提供 Web 界面（Flask + WebSocket）上传文件处理、实时推流、直播录像保存，历史记录查看。
 
 ***
 
-## Table of Contents
-
-- [Key Features](#key-features)
-- [Architecture Overview](#architecture-overview)
-- [Project Structure](#project-structure)
-- [Dependencies](#dependencies)
-- [Installation](#installation)
-  - [Prerequisites](#prerequisites)
-  - [Download Model Weights](#download-model-weights)
-  - [Setup (Windows)](#setup-windows)
-  - [Setup (macOS)](#setup-macos)
-  - [CUDA Path Configuration](#cuda-path-configuration)
-- [Usage](#usage)
-  - [Web Application](#web-application)
-  - [Command Line Interface](#command-line-interface)
-- [Configuration Guide](#configuration-guide)
-- [Methodology](#methodology)
-  - [1. Low-Light Image Enhancement](#1-low-light-image-enhancement)
-  - [2. Pedestrian Detection (YOLOv8)](#2-pedestrian-detection-yolov8)
-  - [3. Multi-Object Tracking (ByteTrack)](#3-multi-object-tracking-bytetrack)
-  - [4. Three Counting Modes](#4-three-counting-modes)
-  - [5. Post-Processing: Highlight Protection](#5-post-processing-highlight-protection)
-- [System Pipeline](#system-pipeline)
-- [API Reference](#api-reference)
-- [Performance Optimization](#performance-optimization)
-- [Troubleshooting](#troubleshooting)
-- [License](#license)
-
-***
-
-## Key Features
-
-- **Dual Low-Light Enhancement**: DarkIR (frequency-domain U-Net, \~15-20 GMACs) for superior image quality; Zero-DCE (lightweight depthwise CNN, \~4-5 GMACs) for real-time video streaming
-- **Three Counting Modes**:
-  - **Full-image counting**: ByteTrack-based line crossing across the entire frame
-  - **Zone-based counting**: 6-zone grid (2x3) with foot-region IN/OUT directional tracking
-  - **Line-crossing counting**: Configurable horizontal/vertical counting lines (H1/V1/V2)
-- **4-Thread Parallel Video Pipeline**: Read → Enhance & Detect (parallel branches) → Assemble & Track, with adaptive frame sampling (≤24 FPS) and auto 1080p downscaling
-- **Real-time WebSocket Streaming**: Low-latency frame push with concurrent enhance + detect via `ThreadPoolExecutor`; frame-skip debounce prevents memory queue overflow
-- **Live Recording**: Auto-buffered real-time stream recording with computed FPS from actual frame intervals
-- **Highlight Protection Filter**: Luminance-squared mask fusion prevents over-exposure in bright regions after enhancement (disabled during real-time streaming for maximum throughput)
-- **Cross-Platform GPU Acceleration**: Auto-detects CUDA (NVIDIA) → MPS (Apple Silicon) → CPU
-- **History Management**: Per-user processing history with admin/guest role separation via JSON persistence
-- **Dual Interface**: Web GUI (Flask + Bootstrap 5) and CLI batch processing (`main.py`)
-
-***
-
-## Architecture Overview
+## 项目结构
 
 ```
-┌──────────────────────────────────────────────────────────────────────┐
-│                        Web Frontend (HTML5)                          │
-│               Image/Video Upload  │  Real-time WebSocket Stream      │
-└─────────────────────┬─────────────┴──────────────┬───────────────────┘
-                      │                            │
-┌─────────────────────▼────────────────────────────▼───────────────────┐
-│                     Flask + Flask-SocketIO Server (app.py)           │
-│                                                                      │
-│   ┌───────────────┐   ┌──────────────────┐   ┌──────────────────┐    │
-│   │ Upload Route  │   │ WebSocket Handler│   │ History Manager  │    │
-│   │ (/upload)     │   │ (stream_frame)   │   │ (results.json)   │    │
-│   └──────┬────────┘   └────────┬─────────┘   └──────────────────┘    │
-│          │                     │                                     │
-│   ┌──────▼─────────────────────▼───────────┐                         │
-│   │       4-Thread Parallel Pipeline       │                         │
-│   │  Thread A (Read) ──► Thread B (Enhance)│                         │
-│   │       │                    │           │                         │
-│   │       └────────────────────┤           │                         │
-│   │                            ▼           │                         │
-│   │  Thread C (Detect) ◄─── frame ◄────────│                         │
-│   │       │                    │           │                         │
-│   │       └────────┬───────────┘           │                         │
-│   │                ▼                       │                         │
-│   │  Thread D (Assemble + Tracking)        │                         │
-│   └────────────────────────────────────────┘                         │
-└───────────────────────────┬──────────────────────────────────────────┘
-                            │
-┌───────────────────────────▼───────────────────────────────────────────┐
-│                      AI Inference Engine                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────────┐ │
-│  │   DarkIR     │  │  Zero-DCE    │  │  YOLOv8 + ByteTrack          │ │
-│  │  (U-Net +    │  │ (Depthwise   │  │  (Detection + Multi-Object   │ │
-│  │  FreqMLP)    │  │  Separable   │  │   Tracking + Counting)       │ │
-│  │              │  │  CNN)        │  │                              │ │
-│  └──────────────┘  └──────────────┘  └──────────────────────────────┘ │
-└───────────────────────────────────────────────────────────────────────┘
+Pedestrian Detection and Counting System in Low-Light Environments/
+│
+├── app.py                         # Flask Web 应用主入口
+├── main.py                        # 命令行工具入口
+├── model.py                       # Zero-DCE 增强网络模型定义
+├── image_filters.py               # 智能后处理（高光保护融合）
+│
+├── inference_DarkIR.py            # DarkIR 模型推理模块
+├── inference_Zero_DCE.py          # Zero-DCE 模型推理模块
+│
+├── yolov8_predict.py               # YOLOv8 行人检测
+├── yolo_count_bytetrack_stable.py  # ByteTrack 稳定行人计数
+├── yolo_count_from_labels.py       # 基于标签文件的计数脚本 + CCTV 绘图工具函数
+│
+├── archs/
+│   ├── DarkIR.py                   # DarkIR 网络主体
+│   ├── arch_model.py               # 子模块：EBlock、DBlock、FreMLP、SimpleGate
+│   └── arch_util.py                # 工具模块：LayerNorm2d、CustomSequential
+│
+├── options/
+│   ├── DarkIR.yml                  # DarkIR 模型配置文件
+│   └── options.py                  # YAML 配置解析器
+│
+├── templates/
+│   ├── index.html                  # Web 主页
+│   ├── result.html                 # 结果展示页
+│   └── history.html                # 历史记录页
+│
+├── static/                         # 静态资源目录
+├── requirement.txt                 # Python 依赖列表
+├── start_ngrok.bat                 # ngrok 一键部署脚本
+│
+├── models/                         # 预训练模型权重
+│   ├── best.pt                     # YOLOv8 行人检测权重
+│   ├── DarkIR.pt                   # DarkIR 低光增强权重
+│   └── Zero_DCE.pth                # Zero-DCE 低光增强权重
+│
+└── results.json                    # 历史处理记录
 ```
 
 ***
 
-## Project Structure
+## 开发环境
 
-```
-.
-├── app.py                          # Flask + SocketIO web server (main entry)
-├── main.py                         # CLI tool for batch enhancement (5 modes)
-├── model.py                        # Zero-DCE network definition (enhance_net_nopool)
-├── image_filters.py                # Highlight protection post-processing filter
-├── inference_DarkIR.py             # DarkIR inference API (image/video/folder)
-├── inference_Zero_DCE.py           # Zero-DCE inference class (image/video/camera)
-├── yolo_count_bytetrack_stable.py  # Stable ByteTrack tracking & counting logic
-├── yolo_count_from_labels.py       # Counting utilities (zone bounds, CCTV header, count panel)
-├── yolov8_predict.py               # YOLOv8 predictor (memory-level API + ByteTrack session)
-├── requirement.txt                 # Python dependencies (exact versions)
-├── results.json                    # Processing history records (auto-generated)
-├── start_ngrok.bat                 # Ngrok tunnel startup script (optional)
-├── openh264-1.8.0-win64.dll        # H.264 encoder library (Cisco OpenH264)
-├── 启动说明.txt                     # Quick-start guide (Chinese)
-│
-├── archs/                          # DarkIR model architecture
-│   ├── __init__.py                 # Model factory (create_model from YAML config)
-│   ├── DarkIR.py                   # Main U-Net with PixelShuffle upsample + side loss
-│   ├── arch_model.py               # EBlock, DBlock, FreMLP, SimpleGate, Branch
-│   └── arch_util.py                # LayerNorm2d, CustomSequential
-│
-├── options/                        # DarkIR configuration
-│   ├── DarkIR.yml                  # Network hyperparameters (channels, blocks, dilations)
-│   └── options.py                  # YAML config parser with OrderedDict support
-│
-├── models/                         # Pretrained weights (gitignored, must download)
-│   ├── best.pt                     # YOLOv8 pedestrian detection model
-│   ├── DarkIR.pt                   # DarkIR enhancement weights
-│   └── Zero_DCE.pth                # Zero-DCE enhancement weights
-│
-├── templates/                      # Jinja2 HTML templates
-│   ├── index.html                  # Main page (upload + live stream + sidebar)
-│   ├── result.html                 # Processing result view (image/video player)
-│   └── history.html                # History records page (admin/guest filtered)
-│
-└── static/                         # Runtime data (gitignored, auto-created)
-    ├── uploads/                    # User uploaded original files
-    ├── results/                    # Processed output files (prefixed with "res_")
-    └── live_records/               # Live stream recordings (prefixed with "live_")
-```
+| 组件      | 版本/说明                          |
+| ------- | ------------------------------ |
+| 操作系统    | Windows 10/11                  |
+| Python  | 3.10+                          |
+| CUDA    | 12.1                           |
+| PyTorch | 2.5.1+cu121                    |
+| 深度学习框架  | PyTorch, Ultralytics           |
+| Web 框架  | Flask 3.1 + Flask-SocketIO 5.6 |
+| 计算机视觉   | OpenCV 4.10, NumPy 2.0, Pillow |
+| 目标检测    | YOLOv8                         |
+| 多目标跟踪   | ByteTrack                      |
+| 实时通信    | WebSocket (Flask-SocketIO)     |
+| GPU 加速  | NVIDIA CUDA / Apple MPS / CPU  |
+| 内网穿透    | ngrok                          |
 
 ***
 
-## Dependencies
-
-All Python dependencies with pinned versions are listed in [`requirement.txt`](requirement.txt).
-
-| Category                  | Package         | Version      | Purpose                           |
-| ------------------------- | --------------- | ------------ | --------------------------------- |
-| **Web Framework**         | Flask           | 3.1.3        | HTTP routing & templating         |
-| <br />                    | Flask-SocketIO  | 5.6.1        | WebSocket support                 |
-| <br />                    | python-socketio | 5.16.2       | SocketIO protocol                 |
-| <br />                    | python-engineio | 4.13.2       | Engine.IO transport               |
-| **PyTorch (CUDA 12.1)**   | torch           | 2.5.1+cu121  | Deep learning framework           |
-| <br />                    | torchvision     | 0.20.1+cu121 | Image transforms & models         |
-| <br />                    | torchaudio      | 2.5.1+cu121  | Audio processing                  |
-| **Computer Vision**       | opencv-python   | 4.10.0.84    | Image/video I/O & processing      |
-| <br />                    | numpy           | 2.0.0        | Numerical computing               |
-| <br />                    | Pillow          | 10.3.0       | Image handling                    |
-| <br />                    | scikit-image    | 0.24.0       | Image analysis                    |
-| <br />                    | imageio         | 2.37.3       | Multi-format image I/O            |
-| <br />                    | kornia          | 0.7.2        | Differentiable CV ops             |
-| <br />                    | kornia\_rs      | 0.1.10       | Kornia Rust backend               |
-| **YOLO / Tracking**       | ultralytics     | 8.4.67       | YOLOv8 detection                  |
-| <br />                    | filterpy        | 1.4.5        | Kalman filters (ByteTrack dep)    |
-| <br />                    | lap             | 0.5.13       | Linear assignment (ByteTrack dep) |
-| **Low-Light Enhancement** | einops          | 0.8.0        | Tensor operations                 |
-| <br />                    | ptflops         | 0.7.3        | FLOPs calculation                 |
-| **Utilities**             | PyYAML          | 6.0.1        | YAML config parsing               |
-| <br />                    | tqdm            | 4.66.4       | Progress bars                     |
-| <br />                    | matplotlib      | 3.10.8       | Plotting                          |
-| <br />                    | scipy           | 1.13.1       | Scientific computing              |
-
-**One-command install:**
+## 安装依赖
 
 ```bash
-pip install -r requirement.txt
-```
-
-> **Note**: The `torch` and `torchvision` versions above target CUDA 12.1. If you need CPU-only or a different CUDA version, install PyTorch manually from [pytorch.org](https://pytorch.org/get-started/locally/) before running `pip install -r requirement.txt`.
-
-***
-
-## Installation
-
-### Prerequisites
-
-| Requirement                | Notes                                         |
-| -------------------------- | --------------------------------------------- |
-| **Python 3.10+**           | Recommended: 3.10.13                          |
-| **NVIDIA GPU + CUDA 12.1** | Optional — auto-fallback to Apple MPS or CPU  |
-| **Git**                    | For cloning the repository                    |
-| **FFmpeg** (macOS)         | `brew install ffmpeg` — needed for mp4v codec |
-
-### Download Model Weights
-
-网盘链接: <https://pan.baidu.com/s/18x-qZ23T7ltvAKTBiFkdHA?pwd=khsq> 提取码: khsq
-
-Before running the system, download the required pretrained model weights and place them in the `models/` directory:
-
-```
-models/
-├── best.pt          # YOLOv8 pedestrian detection model
-├── DarkIR.pt        # DarkIR enhancement weights
-└── Zero_DCE.pth     # Zero-DCE enhancement weights
-```
-
-### Setup (Windows)
-
-```powershell
-# 1. Clone the repository
-git clone <repo-url>
+# 1. 克隆或进入项目目录
 cd "Pedestrian Detection and Counting System in Low-Light Environments"
 
-# 2. Install Python dependencies
+# 2. 创建虚拟环境（推荐）
+conda create -n lowlight python=3.10
+conda activate lowlight
+
+# 3. 安装 PyTorch（CUDA 12.1 版本）
+pip install torch==2.5.1+cu121 torchvision==0.20.1+cu121 torchaudio==2.5.1+cu121 --index-url https://download.pytorch.org/whl/cu121
+
+# 4. 安装其余依赖
 pip install -r requirement.txt
 
-# 3. (Optional) Install CUDA Toolkit 12.1 for GPU acceleration
-#    Download: https://developer.nvidia.com/cuda-downloads
-
-# 4. Start the web server
-python app.py
-#    → Open http://localhost:5000 in your browser
+# 5. 放置预训练模型权重到 models/ 目录
+#    - best.pt      (YOLOv8 行人检测)
+#    - DarkIR.pt    (DarkIR 增强)
+#    - Zero_DCE.pth (Zero-DCE 增强)
 ```
 
-> **Admin password**: `666666` | **Default port**: `5000` (change at bottom of `app.py`)
-
-### Setup (macOS)
-
-```bash
-# 1. Install Homebrew (skip if already installed)
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-
-# 2. Install pyenv + xz (Python version management)
-brew install pyenv xz
-
-# 3. Install Python 3.10.13
-pyenv install 3.10.13
-pyenv local 3.10.13
-
-# 4. Install dependencies
-pip install flask flask-socketio numpy opencv-python Pillow torch torchvision ptflops tqdm ultralytics
-
-# 5. (Optional) Install FFmpeg for mp4v codec support
-brew install ffmpeg
-
-# 6. Start the web server
-python app.py
-#    → Open http://localhost:5000 in your browser
-```
-
-> **Apple Silicon (M1/M2/M3)**: MPS acceleration is auto-detected and enabled. No additional configuration needed.
-
-### CUDA Path Configuration
-
-If CUDA is installed at a non-default location, update `cuda_bin_path` at the top of `app.py`:
-
-```python
-cuda_bin_path = r'C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.1\bin'
-```
-
-On startup, `app.py` prints a full GPU diagnostic to verify acceleration is working correctly.
+模型的网盘下载链接: <https://pan.baidu.com/s/18x-qZ23T7ltvAKTBiFkdHA?pwd=khsq> 提取码: khsq
 
 ***
 
-## Usage
+## 算法讲解
 
-### Web Application
+### 1. DarkIR 低光增强
 
-1. Start the server: `python app.py`
-2. Open `http://localhost:5000` in your browser
-3. **Upload Processing**: Select image/video, configure enhance/detect/counting mode, click upload. View results with video player and counting stats.
-4. **Real-time Streaming**: Click "Live Stream" tab, grant camera permission. Toggle enhance/detect, select counting zone, and optionally record the session.
-5. **History**: View past processing results. Admins see all records; guests see only their own.
+DarkIR 是一种基于 **U-Net 架构** 的端到端低光照图像增强网络，定义在 [archs/DarkIR.py](archs/DarkIR.py)。
 
-#### Supported Counting Configurations
+**网络结构：**
 
-| Mode            | Description                             | Web UI Parameter                               |
-| --------------- | --------------------------------------- | ---------------------------------------------- |
-| Full Image      | Line crossing count (entire frame)      | `zone.id = null, count_mode = 'full'`          |
-| Zone (2×3 Grid) | 6-zone directional foot-region counting | `zone.id = 1-6, direction = top_to_bottom/...` |
-| Global Line     | H1 / V1 / V2 directional line crossing  | `zone.line_id = h1/v1/v2, count_mode = 'line'` |
+- **编码器（Encoder）：** 由多个 `EBlock` 组成，每个 EBlock 包含多尺度空洞卷积分支、通道注意力（SE-like）和**频域 MLP（FreMLP）**。频域 MLP 通过 FFT 将特征变换到频域，在幅度谱上做卷积处理，捕获全局光照信息。
+- **下采样：** 使用 `Conv2d(stride=2)` 进行 2 倍下采样，同时通道数翻倍。
+- **中间瓶颈层：** 编码器中间块 + 解码器中间块，使用带空洞卷积的 `DBlock`。
+- **解码器（Decoder）：** 通过 **PixelShuffle** 上采样，与编码器对应层进行跳跃连接（skip connection），逐层恢复分辨率。
+- **全局残差连接：** 最终输出与输入相加（`x + input`），网络学习的是增强残差。
 
-### Command Line Interface
+**关键技术点：**
 
-`main.py` provides 5 operating modes for batch image/video enhancement:
+- 多尺度空洞卷积（dilations=\[1, 4, 9]）捕获不同感受野。
+- 频域 MLP（FreMLP）处理全局光照上下文。
+- SimpleGate 门控机制增强特征表达。
+- LayerNorm2d 替代 BatchNorm，适应小 batch 推理。
+
+**模型配置：** [options/DarkIR.yml](options/DarkIR.yml)
+
+```yaml
+network:
+  name: DarkIR
+  width: 64
+  middle_blk_num_enc: 2
+  middle_blk_num_dec: 2
+  enc_blk_nums: [1, 2, 3]
+  dec_blk_nums: [3, 1, 1]
+  dilations: [1, 4, 9]
+```
+
+### 2. Zero-DCE 低光增强
+
+Zero-DCE（Zero-Reference Deep Curve Estimation）是一种**零参考**低光增强网络，定义在 [model.py](model.py)。
+
+**核心思想：** 不需要成对训练数据，通过预测**像素级高阶增强曲线参数**来实现图像提亮。
+
+**网络结构：**
+
+- 使用\*\*深度可分离卷积（Depthwise Separable Convolution）\*\*大幅减少参数量，构建轻量级无池化 U-Net。
+- 7 层编解码结构 + 跳跃连接，输出 3 通道曲线参数 `x_r ∈ [-1, 1]`。
+- 通过 **8 次迭代的高阶曲线**逐步增强图像：
+  ```
+  LE_n(x) = LE_{n-1}(x) + x_r * (LE_{n-1}(x)^2 - LE_{n-1}(x))
+  ```
+
+**优势：**
+
+- 极轻量（< 100K 参数），推理速度快。
+- 支持 12 倍下采样加速（`scale_factor=12`），适合实时视频流处理。
+
+### 3. 高光保护滤镜
+
+定义在 [image\_filters.py](image_filters.py)。基于**亮度平方蒙版**的自适应融合策略：
+
+- 计算原始图像的亮度蒙版（亮区蒙版值接近 1）。
+- 加权融合公式：`输出 = 原图 × 蒙版 + 增强图 × (1 - 蒙版)`
+- 效果：亮部区域（如灯光、天空）保留更多原始像素，暗部区域使用增强结果，避免过曝。
+
+### 4. YOLOv8 行人检测
+
+定义在 [yolov8\_predict.py](yolov8_predict.py)。
+
+- 使用 Ultralytics YOLOv8 模型进行行人检测（类别 ID=0, person）。
+- **YoloMemoryPredictor** 类：接收 numpy 帧，直接返回检测框坐标列表，实现**零磁盘读写**的内存级推理。
+- 置信度阈值 0.2，IoU 阈值 0.45。
+- 自动设备选择：CUDA > MPS > CPU。
+
+### 5. ByteTrack 多目标跟踪与计数
+
+定义在 [yolo\_count\_bytetrack\_stable.py](yolo_count_bytetrack_stable.py)。
+
+- 使用 **ByteTrack** 算法为每个行人分配稳定跟踪 ID。
+- **滞后带（Hysteresis Band）防抖：** 在计数线两侧设置滞后区，只有明确跨越的轨迹才计入，避免边界抖动导致的重复计数。
+- **稳定 ID 重连（Stable ID Reconnection）：** 基于脚点距离的贪心匹配，解决 ByteTrack 短时 ID 切换问题。
+- **近期穿越去重：** 时间窗口 + 空间距离双重判断，防止同一人短时间内的重复计数。
+
+### 6. 三种计数模式
+
+| 模式   | 说明                                                    |
+| ---- | ----------------------------------------------------- |
+| 全图计数 | 统计画面中所有检测到的行人总数（ByteTrack 跟踪）                         |
+| 越线计数 | 在画面中预设水平线（H1）或垂直线（V1/V2），统计跨越该线的行人数量，支持上下/左右方向过滤      |
+| 区域计数 | 将画面划分为多个区域，统计进入/离开各区域的行人数，显示 CUR（当前）/ IN（进入）/ OUT（离开） |
+
+### 7. 四线程并行流水线
+
+定义在 [app.py](app.py) 的 `process_video_file()` 函数中。
+
+为最大化视频处理吞吐量，采用 **Fork-Join 四线程并行架构**：
+
+```
+线程A (Read) ──读取抽帧──→ q_raw_dark ──→ 线程B (Enhance) ──增强──→ Image_Buffer_Dict
+        │                                                                   │
+        └──→ q_raw_yolo ──→ 线程C (YOLO)  ──检测──→ BBox_Buffer_Dict         │
+                                                       │                    │
+                                                       └──── 线程D (Assemble & Write) ←─┘
+                                                                │
+                                                         组装画面 + 跟踪计数
+                                                                │
+                                                         输出视频 + 保存结果
+```
+
+线程 B（增强）和线程 C（检测）并行执行，线程 D 轮询等待两者都完成后组装帧。WebSocket 实时流则使用 **ThreadPoolExecutor** 实现增强与检测的并行处理。
+
+***
+
+## 运行方法
+
+### 命令行模式
+
+使用 `main.py` 进行独立的图像/视频增强，支持 5 种模式：
 
 ```bash
-# Single image enhancement (DarkIR)
+# 1. 单张图像增强 (DarkIR)
 python main.py --mode image --input inputs/test.jpg --output results/enhanced.jpg
 
-# Batch image folder enhancement (DarkIR)
+# 2. 批量图片文件夹增强 (DarkIR)
 python main.py --mode batch --input inputs/ --output results/
 
-# Single video enhancement
+# 3. 单个视频增强 (可选择 DarkIR 或 Zero-DCE)
 python main.py --mode video --input videos/test.mp4 --output results/enhanced.mp4 --model darkir
 python main.py --mode video --input videos/test.mp4 --output results/enhanced.mp4 --model zero_dce
 
-# Batch video folder enhancement
+# 4. 批量视频文件夹增强
 python main.py --mode video_batch --input videos/ --output results/ --model darkir
 python main.py --mode video_batch --input videos/ --output results/ --model zero_dce
 
-# Camera real-time enhancement (Zero-DCE)
+# 5. 摄像头实时增强 (Zero-DCE)
 python main.py --mode camera --camera_id 0
 python main.py --mode camera --camera_id 0 --save_video --output camera.mp4
 ```
 
-**CLI Arguments**:
+### Web 系统模式
 
-| Argument       | Type | Default                | Description                               |
-| -------------- | ---- | ---------------------- | ----------------------------------------- |
-| `--mode`       | str  | (required)             | image, batch, video, video\_batch, camera |
-| `--input`      | str  | —                      | Input file or directory path              |
-| `--output`     | str  | `./results/`           | Output file or directory path             |
-| `--model`      | str  | `darkir`               | darkir / zero\_dce (video modes only)     |
-| `--config`     | str  | `./options/DarkIR.yml` | DarkIR config file path                   |
-| `--camera_id`  | int  | `0`                    | Camera device ID                          |
-| `--save_video` | flag | False                  | Save camera output to file                |
-| `--no_display` | flag | False                  | Disable preview window                    |
+```bash
+# 启动 Flask Web 服务器
+python app.py
+
+# 浏览器访问
+http://localhost:5000
+```
+
+Web 系统功能：
+
+- **上传处理：** 上传图片/视频，选择增强模型和计数模式，在线处理并查看结果。
+- **实时推流：** 通过 WebSocket 逐帧发送图像，实时增强 + 检测 + 计数，低延迟推流回前端。
+- **直播录像：** 实时流可一键录制为 MP4 文件，自动计算真实帧率保存。
+- **历史记录：** 管理员可查看所有处理记录，普通用户仅可见自己的记录。
+- **管理员密码：** `666666`
+
+### 公网访问（ngrok）
+
+```bash
+# 在桌面双击运行
+start_ngrok.bat
+```
+
+需要登录Ngrok官网注册域名，再脚本里修改域名。脚本会自动启动 Flask 服务并通过 ngrok 创建公网隧道，生成 HTTPS 公网地址供外网访问。
 
 ***
 
-## Configuration Guide
+## 结果呈现
 
-### Model File Paths
+系统处理完成后，结果页面展示以下信息：
 
-Ensure the following paths in `app.py` are correct:
+- **处理结果文件：** 增强后的图像或带计数标注的视频（可直接在线播放/下载）。
+- **行人计数：** 显示统计的行人数量（区域模式显示当前/进入/离开）。
+- **处理耗时：** 记录从上传到完成的处理时长。
+- **算法组合：** 显示本次处理使用的增强模型 + 检测模型。
+- **计数模式标注：** 全图 / 越线 / 区域及对应的方向、位置。
+- **CCTV 抬头信息：** 输出视频/帧上叠加摄像头 ID、时间戳、实时 FPS。
 
-```python
-detector = YoloMemoryPredictor('models/best.pt')                     # Line ~107
-DARKIR_MODEL, darkir_resize = darkir_api.init_model('./options/DarkIR.yml')  # Line ~111
-ZERO_DCE_ENGINE = ZeroDCEInference(model_path='models/Zero_DCE.pth', ...)     # Line ~114
-```
-
-### Key Tuning Parameters
-
-| Parameter          | Location                         | Default    | Description                                             |
-| ------------------ | -------------------------------- | ---------- | ------------------------------------------------------- |
-| `scale_factor`     | `inference_Zero_DCE.py`          | 12         | Zero-DCE downsampling factor (larger = faster, coarser) |
-| `conf` / `iou`     | `yolov8_predict.py`              | 0.2 / 0.45 | YOLO detection thresholds                               |
-| `track_buffer`     | `yolo_count_bytetrack_stable.py` | 60         | ByteTrack lost-track retention frames                   |
-| `match_thresh`     | `yolo_count_bytetrack_stable.py` | 0.8        | ByteTrack IoU matching threshold                        |
-| `hysteresis_ratio` | `yolo_count_bytetrack_stable.py` | 0.035      | Counting line hysteresis zone size                      |
-| `warmup_frames`    | `yolo_count_bytetrack_stable.py` | 5          | Initial frames before IN/OUT counting                   |
-| `port`             | `app.py` (last line)             | 5000       | Web server port                                         |
-
-### Ngrok Tunnel (Optional)
-
-For public access, use the bundled `start_ngrok.bat` script with [ngrok](https://ngrok.com/).
+所有历史记录持久化存储在 `results.json` 中，可在历史页面查询。
 
 ***
 
-## Methodology
+## 效果展示
 
-### 1. Low-Light Image Enhancement
+处理后的视频/图像上叠加以下可视化元素：
 
-#### DarkIR (Frequency-Domain U-Net)
+- **行人检测框：** 红色矩形框标注每个检测到的行人。
+- **跟踪轨迹：** 黄色轨迹线显示行人移动路径，脚点黄色圆点标示当前脚部位置。
+- **计数线/区域：** 半透明红色/蓝色线条标记计数边界。
+- **计数面板：** 半透明黑色面板显示实时/累计行人数。
+- **CCTV 抬头：** 顶部黑条显示摄像头 ID、时间戳、帧率。
 
-DarkIR is a symmetric U-Net architecture designed for low-light image enhancement, incorporating frequency-domain processing and multi-scale dilated convolutions for superior image quality.
+低光照条件下的典型效果对比：
 
-**Network Config** (`options/DarkIR.yml`):
+| 处理前                | 处理后                                                |
+| ------------------ | -------------------------------------------------- |
+| 暗光视频/图片，行人不可见或难以辨识 | DarkIR/Zero-DCE 增强后亮度增强，细节清晰，没有过曝，YOLOv8 行人准确检测并标注 |
 
-| Parameter                | Value      | Description                                       |
-| ------------------------ | ---------- | ------------------------------------------------- |
-| `img_channels`           | 3          | Input RGB channels                                |
-| `width`                  | 64         | Base feature channels (doubled per encoder layer) |
-| `enc_blk_nums`           | \[1, 2, 3] | EBlock counts per encoder stage                   |
-| `dec_blk_nums`           | \[3, 1, 1] | DBlock counts per decoder stage                   |
-| `middle_blk_num_enc/dec` | 2          | Bottleneck block counts                           |
-| `dilations`              | \[1, 4, 9] | Multi-scale dilation rates                        |
-| `extra_depth_wise`       | True       | Extra depthwise conv in EBlock/DBlock             |
-
-**Encoder Block (EBlock)**:
-
-- **Multi-scale dilated convolution branches**: Parallel depthwise convolutions with dilation rates \[1, 4, 9] capture features at different receptive fields
-- **Channel Self-Attention (SCA)**: Global average pooling + 1×1 convolution produces channel-wise attention weights
-- **SimpleGate**: Splits feature channels into halves and multiplies element-wise: `G(x₁, x₂) = x₁ · x₂`
-- **Frequency-domain MLP (FreMLP)**: Applies real FFT → processes only the magnitude spectrum through a 2-layer MLP while preserving phase → inverse FFT. Captures global context efficiently without quadratic complexity
-
-**Decoder Block (DBlock)**:
-
-- Same multi-scale dilated convolution + SCA + SimpleGate as EBlock
-- Uses a standard Feed-Forward Network (FFN) instead of FreMLP
-- Both EBlock and DBlock employ learnable residual scaling parameters (β, γ) initialized to zero
-
-**Overall Architecture**:
-
-- Symmetric U-Net with PixelShuffle for upsampling (channel-to-spatial conversion)
-- Skip connections between encoder and decoder stages
-- Global residual connection: `output = input + ending(decoder_features)`
-- Auto-padding to ensure divisibility by 8 at each downsample stage
-- Optional large-image strategy: downsample by 2× before enhance, upsample result back
-
-#### Zero-DCE (Zero-Reference Deep Curve Estimation)
-
-Zero-DCE is a lightweight CNN that estimates pixel-wise enhancement curve parameters without paired training data. The model is defined in [model.py](model.py).
-
-- **Depthwise Separable Convolutions (CSDN\_Tem)**: Each block = depthwise conv (groups=in\_ch) + pointwise conv (1×1), drastically reducing parameters
-- **7-layer encoder with skip connections**: Concatenates early and later layer features for multi-scale representation
-- **Iterative Higher-Order Curve**: Applies the quadratic curve 8 times iteratively:
-  ```
-  LE_n(x) = LE_{n-1}(x) + A_n(x) · (LE_{n-1}(x)² - LE_{n-1}(x))
-  ```
-  where `A_n(x)` is the pixel-wise curve parameter map (bounded by tanh to \[-1, 1])
-- **Scalable inference**: Input downsampled by `scale_factor` (default 12), then curve map upsampled back. Larger factor = faster but coarser
-
-| Model    | FLOPs (3×256×256) | Advantages                                  | Use Case                         |
-| -------- | ----------------- | ------------------------------------------- | -------------------------------- |
-| DarkIR   | \~15-20 GMACs     | Superior quality, frequency-domain features | Image processing, offline video  |
-| Zero-DCE | \~4-5 GMACs       | Fast, lightweight, real-time capable        | Live stream, WebSocket streaming |
-
-### 2. Pedestrian Detection (YOLOv8)
-
-Uses Ultralytics YOLOv8 with a custom-trained pedestrian detection model (`models/best.pt`):
-
-- **Device auto-selection**: CUDA → MPS → CPU
-- **Memory-level API** (`YoloMemoryPredictor` in [yolov8\_predict.py](yolov8_predict.py)): Accepts numpy frames directly, returns detection boxes — zero disk I/O
-- **Detection parameters**: conf=0.2, iou=0.45, classes=\[0] (person only)
-- **ByteTrackSession**: Per-client tracker instances in `YoloMemoryPredictor` for WebSocket streaming
-
-### 3. Multi-Object Tracking (ByteTrack)
-
-Two separate ByteTrack tracker implementations serve different purposes:
-
-1. **`yolov8_predict.py::ByteTrackSession`** — Lightweight tracker for basic per-client tracking in WebSocket streaming
-2. **`yolo_count_bytetrack_stable.py::StableByteTrackSession`** — Specialized tracker tuned for low-light counting with:
-   - Higher `track_buffer=60` for occlusion resilience
-   - Fuse score enabled for better track quality
-   - Stable ID reassignment via center+foot distance matching (combats ByteTrack ID switches)
-
-**Stable ID Reconnection** ([`_assign_stable_ids`](yolo_count_bytetrack_stable.py)): When ByteTrack assigns a new raw ID, the system searches recent known tracks within a distance gate (weighted 70% foot + 30% center distance). This prevents counting errors from ID fragmentation.
-
-### 4. Three Counting Modes
-
-All modes use ByteTrack tracking with hysteresis bands to avoid boundary jitter.
-
-#### Full-Image Line Crossing
-
-- Horizontal line at frame center (top\_to\_bottom by default)
-- Each person counted once on first directional crossing
-- Configurable hysteresis margin
-
-#### Zone-Based Counting (2×3 Grid)
-
-- Frame divided into 6 zones (2 rows × 3 cols)
-- Counting line placed at `line_percent%` inside the selected zone boundary
-- Directional: top\_to\_bottom, bottom\_to\_top, left\_to\_right, right\_to\_left
-- Foot-region mode (`process_frame_memory_zones_foot_region`): Tracks bottom-center point trajectories for more accurate enter/exit detection with confirm frames and duplicate suppression
-
-#### Global Line Counting
-
-- Three pre-defined counting lines: H1 (horizontal center), V1 (left third), V2 (right third)
-- Full-frame ByteTrack tracking with foot-point trajectory visualization
-- Directional counting with hysteresis
-
-### 5. Post-Processing: Highlight Protection
-
-The [highlight protection filter](image_filters.py) prevents over-exposure in bright regions (e.g., lamps, windows) after low-light enhancement:
-
-1. Compute luminance mask from original frame: `mask = (gray / 255)²`
-2. Weighted fusion: `output = original × mask + enhanced × (1 - mask)`
-3. Bright areas retain more original pixels; dark areas use enhanced result
-
-> **Note**: This filter is disabled during real-time WebSocket streaming to maximize throughput.
+![Result](input1.png)
+![Result](res_input1.png)
+![Result](1c46dcc5fc4decdd38a8ba754952e816.jpg)
+![Result](res_1c46dcc5fc4decdd38a8ba754952e816.jpg)
 
 ***
 
-## System Pipeline
+## 作者联系方式
 
-### Video Processing (4-Thread Parallel Pipeline)
+本项目为四人专业综合设计课程小组合作成果。
 
-```
-┌────────────────────────────────────────────────────────────┐
-│              process_video_file() in app.py                │
-├────────────────────────────────────────────────────────────┤
-│  Thread A: Read & Decimate                                 │
-│  ├─ Read frames from video file                            │
-│  ├─ Decimate to ≤24 FPS (sample_interval = orig_fps / 24)  │
-│  ├─ Resize to ≤1080p (short edge limit)                    │
-│  └─ Feed both q_raw_dark and q_raw_yolo queues             │
-│                                                            │
-│  Thread B: Enhance (parallel with Thread C)                │
-│  ├─ DarkIR or Zero-DCE based on enhance_model param        │
-│  ├─ Apply highlight protection filter                      │
-│  └─ Store in Image_Buffer_Dict                             │
-│                                                            │
-│  Thread C: YOLO Detect (parallel with Thread B)            │
-│  ├─ Run detector.predict_frame()                           │
-│  └─ Store in BBox_Buffer_Dict                              │
-│                                                            │
-│  Thread D: Assemble & Write                                │
-│  ├─ Poll for both buffers ready                            │
-│  ├─ ByteTrack tracking + counting overlay                  │
-│  ├─ Write to output MP4 (avc1 codec)                       │
-│  └─ Update processing_progress for frontend polling        │
-└────────────────────────────────────────────────────────────┘
-```
+- **联系邮箱：** <lqboyh@gmail.com>
 
-### Real-Time WebSocket Streaming
-
-```
-Frontend (Webcam) ──WebSocket──► handle_stream_frame()
-                                    │
-                    ┌───────────────┼───────────────┐
-                    ▼               │               ▼
-            task_enhance()          │        task_detect()
-            (Zero-DCE GPU)          │        (YOLOv8)
-                    │               │               │
-                    └───────────────┼───────────────┘
-                                    ▼
-                          Assemble + ByteTrack
-                                    │
-                                    ▼
-                          JPEG encode → emit('stream_result')
-```
-
-- Frame-skip debounce: drops incoming frames if previous frame is still processing
-- `ThreadPoolExecutor` (max\_workers=4) for concurrent enhance + detect
-- Zero-DCE runs entirely on GPU (tensor ops) — no CPU numpy bottleneck
-- Recording: buffers first 5 frames to compute real FPS, then writes to MP4
-
-***
-
-## API Reference
-
-### REST Endpoints
-
-| Method | Route                  | Auth     | Description                            |
-| ------ | ---------------------- | -------- | -------------------------------------- |
-| `GET`  | `/`                    | —        | Main page (assigns session UID)        |
-| `POST` | `/login`               | password | Admin login (`{"password": "666666"}`) |
-| `GET`  | `/logout`              | session  | Clear admin session                    |
-| `POST` | `/upload`              | —        | Upload image/video for processing      |
-| `GET`  | `/view/<filename>`     | —        | View processing result                 |
-| `GET`  | `/history`             | —        | Processing history (admin sees all)    |
-| `POST` | `/delete_history`      | session  | Delete a history record                |
-| `GET`  | `/progress/<filename>` | —        | Poll video processing progress         |
-
-#### Upload Request Parameters
-
-| Field           | Type | Default      | Description                                                                                                     |
-| --------------- | ---- | ------------ | --------------------------------------------------------------------------------------------------------------- |
-| `file`          | file | (required)   | Image or video file                                                                                             |
-| `enhance`       | str  | `"true"`     | Enable low-light enhancement                                                                                    |
-| `detect`        | str  | `"true"`     | Enable pedestrian detection                                                                                     |
-| `enhance_model` | str  | `"zero_dce"` | Enhancement model for video (darkir / zero\_dce)                                                                |
-| `zone`          | JSON | `null`       | Counting config: `{"id": 1, "mode": "zone", "direction": "top_to_bottom", "line_percent": 12, "line_id": "h1"}` |
-
-### WebSocket Events
-
-| Event           | Direction       | Description                                |
-| --------------- | --------------- | ------------------------------------------ |
-| `stream_frame`  | Client → Server | Send video frame as base64 JPEG + params   |
-| `stream_result` | Server → Client | Receive processed frame + count + zone\_id |
-| `disconnect`    | Server          | Auto-save recording, clean up client state |
-
-#### `stream_frame` Payload
-
-```json
-{
-  "image": "data:image/jpeg;base64,...",
-  "enhance": true,
-  "detect": true,
-  "quality": "480p",
-  "record": false,
-  "zone": {
-    "id": 1,
-    "mode": "zone",
-    "direction": "top_to_bottom",
-    "line_percent": 12,
-    "line_id": "h1"
-  }
-}
-```
-
-#### `stream_result` Response
-
-```json
-{
-  "status": "success",
-  "image": "data:image/jpeg;base64,...",
-  "count": "CUR 3 / IN 5 / OUT 2",
-  "zone_id": 1
-}
-```
-
-***
-
-## Performance Optimization
-
-### Video Processing
-
-- **Auto 1080p limit**: Inputs >1080p are downscaled (short edge capped at 1080)
-- **24 FPS cap**: High-FPS videos are decimated by `sample_interval = original_fps / 24`
-- **4-thread pipeline**: Read, Enhance, Detect run concurrently; Assemble serializes after both complete
-- **avc1 codec**: Hardware-accelerated H.264 encoding on supported GPUs
-
-### WebSocket Streaming
-
-- **GPU-only Zero-DCE**: Image preprocessing (`HWC→CHW`, `/255.0`, BGR→RGB) runs entirely as tensor ops on GPU
-- **ThreadPoolExecutor**: Enhance and detect run concurrently per frame
-- **Frame-skip debounce**: Drops incoming frames when previous is still processing
-- **No highlight protection**: Disabled during streaming (it was the primary FPS bottleneck)
-- **JPEG quality**: 85 for 720p, 70 for 480p
-
-### GPU Diagnostics
-
-On startup, `app.py` prints a full GPU diagnostic:
-
-```
-==================================================
-  GPU / 加速诊断
-==================================================
-  PyTorch 版本: 2.5.1+cu121
-  CUDA 可用: True
-  CUDA 版本: 12.1
-  GPU 型号: NVIDIA GeForce RTX 3060
-  GPU 数量: 1
-  当前设备: cuda:0
-  CUDA 测试: 张量运算正常
-  DarkIR 设备: cuda
-==================================================
-```
-
-***
-
-## Troubleshooting
-
-| Issue                                    | Solution                                                                              |
-| ---------------------------------------- | ------------------------------------------------------------------------------------- |
-| `FileNotFoundError: models/best.pt`      | Download model weights to `models/` directory                                         |
-| CUDA not detected                        | Verify CUDA Toolkit 12.1 is installed; check `cuda_bin_path` in `app.py`              |
-| `ImportError: DLL load failed` (Windows) | Install [Visual C++ Redistributables](https://aka.ms/vs/17/release/vc_redist.x64.exe) |
-| WebSocket connection drops               | Increase `ping_timeout` in Flask-SocketIO config; check firewall                      |
-| Low FPS on CPU                           | Use `--model zero_dce` or `enhance_model='zero_dce'` — Zero-DCE is much lighter       |
-| `CUDA out of memory`                     | Reduce input resolution or switch to `zero_dce` for video                             |
-| mp4v codec not available (macOS)         | Install FFmpeg: `brew install ffmpeg`                                                 |
-
-***
-
-## License
-
-This project is created as a university course assignment (专业综合设计). Contact <lqboyh@gmail.com> for usage inquiries.
-
-***
-
-#   P e d e s t r i a n - D e t e c t i o n - a n d - C o u n t i n g - S y s t e m - i n - L o w - L i g h t - E n v i r o n m e n t s  
- 

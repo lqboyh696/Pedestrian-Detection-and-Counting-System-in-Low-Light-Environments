@@ -10,6 +10,7 @@ dist/
 build/
 eggs/
 *.whl
+*.tar.gz
 
 # ==================== Virtual Environment ====================
 venv/
@@ -17,7 +18,10 @@ env/
 .venv/
 .env/
 .env
-*.env
+.env.local
+.env.*.local
+!.env.example
+!.env.sample
 
 # ==================== IDE / Editor ====================
 .idea/
@@ -28,6 +32,7 @@ env/
 .project
 .pydevproject
 .settings/
+.classpath
 *.sublime-project
 *.sublime-workspace
 
@@ -40,38 +45,60 @@ env/
 ehthumbs.db
 Thumbs.db
 Desktop.ini
+$RECYCLE.BIN/
+
+# ==================== External Binary Dependencies ====================
+*.dll
+*.exe
+*.lib
+*.dylib
 
 # ==================== Model Weights (too large) ====================
 models/
+!models/.gitkeep
 pretrained/
+!pretrained/.gitkeep
 checkpoints/
+!checkpoints/.gitkeep
 *.pt
 *.pth
 *.onnx
 *.engine
 *.trt
+*.safetensors
+*.bin
 
 # ==================== Runtime / User Data ====================
 static/live_records/
+!static/live_records/.gitkeep
 static/uploads/
+!static/uploads/.gitkeep
 static/results/
+!static/results/.gitkeep
 results.json
 
 # ==================== Logs ====================
 *.log
 logs/
+nohup.out
 
 # ==================== Jupyter Notebook ====================
 .ipynb_checkpoints/
 *.ipynb
 
-# ==================== Other ====================
-*.bak
-*.tmp
-*.temp
+# ==================== Flask Instance ====================
+instance/
+
+# ==================== Data / Cache ====================
+*.npy
+*.npz
+data/
 .pytest_cache/
 .coverage
+coverage.xml
 htmlcov/
 .tox/
 .mypy_cache/
 .ruff_cache/
+wandb/
+.mlflow/
