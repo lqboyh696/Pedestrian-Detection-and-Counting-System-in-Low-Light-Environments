@@ -1,23 +1,77 @@
-# Python
+# ==================== Python ====================
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
 *.so
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.whl
 
-# IDE
+# ==================== Virtual Environment ====================
+venv/
+env/
+.venv/
+.env/
+.env
+*.env
+
+# ==================== IDE / Editor ====================
 .idea/
 .vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+*.sublime-project
+*.sublime-workspace
 
-# macOS
+# ==================== OS ====================
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
 
-# Model files (too large for GitHub, use Git LFS or upload separately)
+# ==================== Model Weights (too large) ====================
 models/
+pretrained/
+checkpoints/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
 
-# Runtime data
+# ==================== Runtime / User Data ====================
 static/live_records/
 static/uploads/
 static/results/
+results.json
 
-# Ngrok / temp
+# ==================== Logs ====================
 *.log
+logs/
+
+# ==================== Jupyter Notebook ====================
+.ipynb_checkpoints/
+*.ipynb
+
+# ==================== Other ====================
+*.bak
+*.tmp
+*.temp
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
